@@ -22,7 +22,7 @@ typedef enum {
 } rnntStatus_t;
 
 /** Returns a single integer which specifies the API version of the warprnnt library */
-int get_warprnnt_version();
+int get_monotonic_rnnt_version();
 
 /** Returns a string containing a description of status that was passed in
  *  \param[in] status identifies which string should be returned
@@ -53,16 +53,14 @@ struct rnntOptions {
     /// the label value/index that the RNNT calculation should use as the blank label
     int blank_label;
 
-    /// the maximum length of time steps
-    int maxT;
+    /// start-indices of the batches in the activation tensor
+    int* start_indices;
 
-    /// the maximum length of label sequence
+    /// max U value, needed for strides of zero-padded target-label vector
     int maxU;
-
-    /// memory structure
-    bool batch_first;
 };
 
+// TODO: rewrite
 /** Compute the RNN Transducer loss between a sequence
  *  of probabilities and a ground truth labeling.  Optionally compute the
  *  gradient with respect to the inputs.
@@ -136,7 +134,7 @@ rnntStatus_t compute_rnnt_loss_fp64(const double* const activations,
  *
  *  \return Status information
  **/
-rnntStatus_t get_workspace_size(int maxT, int maxU,
+rnntStatus_t get_workspace_size(int* T, int* U,
                                int minibatch,
                                bool gpu,
                                size_t* size_bytes,

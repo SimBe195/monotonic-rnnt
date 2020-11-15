@@ -103,7 +103,7 @@ for loc in include_dirs:
               file=sys.stderr)
         sys.exit(1)
 
-lib_srcs = ['src/warprnnt_op.cc']
+lib_srcs = ['src/monotonic_rnnt_op.cc']
 
 ext = setuptools.Extension('warprnnt_tensorflow.kernels',
                            sources = lib_srcs,
