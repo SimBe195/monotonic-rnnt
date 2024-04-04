@@ -1,82 +1,183 @@
-# warp-transducer
-A fast parallel implementation of RNN Transducer (Graves 2013 joint network), on both CPU and GPU.
+# Monotonic RNN-T Loss
 
-[GPU implementation is now available for Graves2012 add network.](https://github.com/HawkAaron/warp-transducer/tree/add_network)
+## Theory
 
-## GPU Performance
-Benchmarked on a GeForce GTX 1080 Ti GPU.
+### Loss function
 
-| **T=150, L=40, A=28** | **warp-transducer** |
-| --------------------- | ------------------- |
-|         N=1           |      8.51 ms        |
-|         N=16          |      11.43 ms       |
-|         N=32          |      12.65 ms       |
-|         N=64          |      14.75 ms       |
-|         N=128         |      19.48 ms       |
+The monotonic RNN-T loss can be written as
 
-| **T=150, L=20, A=5000** | **warp-transducer** |
-| ----------------------- | ------------------- |
-|         N=1             |      4.79 ms        |
-|         N=16            |      24.44 ms       |
-|         N=32            |      41.38 ms       |
-|         N=64            |      80.44 ms       |
-|         N=128           |      51.46 ms       |
+$$L = -\log p(a_1^S \mid x_1^T)$$
 
-<!-- | **T=1500, L=300, A=50** | **warp-transducer** |
-| ----------------------- | ------------------- |
-|         N=1             |      570.33 ms      |
-|         N=16            |      768.57 ms      |
-|         N=32            |      955.05 ms      |
-|         N=64            |      569.34 ms      |
-|         N=128           |      -              |
- -->
+$$L = -\log \sum_{y_1^T : a_1^S} p(y_1^T \mid x_1^T)$$
 
-## Interface
-The interface is in `include/rnnt.h`. It supports CPU or GPU execution, and you can specify OpenMP parallelism
-if running on the CPU, or the CUDA stream if running on the GPU. We took care to ensure that the library does not 
-preform memory allocation internally, in oder to avoid synchronizations and overheads caused by memory allocation.
-**Please be carefull if you use the RNNTLoss CPU version, log_softmax should be manually called before the loss function.
-(For pytorch binding, this is optionally handled by tensor device.)**
+$$L = -\log \sum_{y_1^T : a_1^S} \prod_{t=1}^T p_t(y_t \mid x_1^T, a(y_1^{t-1}))$$
 
-## Compilation
-warp-transducer has been tested on Ubuntu 16.04 and CentOS 7. Windows is not supported at this time.
+where $S$ is the number of labels, $T$ is the number of time-steps, $a_1^S$ is the ground-truth label sequence, $x_1^T$
+are the acoustic features, $y_1^T$ is the set of alignments of $a_1^S$ as a result of inserting blank symbols and $a(
+y_1^t)$ is a function that simplifies the history (usually removal of blanks and sometimes truncation to only the one or
+two most recent symbols). For simplicity, $x_1^T$ will be omitted from the dependencies from now on.
 
-First get the code:
-```bash
-git clone https://github.com/HawkAaron/warp-transducer
-cd warp-transducer
-```
-create a build directory:
-```bash
-mkdir build
-cd build
-```
-if you have a non standard CUDA install, add `-DCUDA_TOOLKIT_ROOT_DIR=/path/to/cuda` option to `cmake` so that CMake detects CUDA.
+### Forward-backward
 
-Run cmake and build:
-```bash
-cmake -DCUDA_TOOLKIT_ROOT_DIR=$CUDA_HOME ..
-make
-```
-if it logs
-```
--- cuda found TRUE
--- Building shared library with no GPU support
-```
-please run `rm CMakeCache.txt` and cmake again.
+The loss and gradients can be computed using the forward-backward-algorithm. For this, a forward variable
 
-The C library should now be built along with test executables. If CUDA was detected, then `test_gpu` will be built;
-`test_cpu` will always be built.
+$$\alpha(t, s) = \sum_{y_1^t : a_1^s} \prod{t'=1}^t p_{t'}(y_{t'} \mid a(y_1^{t'-1}))$$
 
-## Test
-To run the tests, make sure the CUDA libraries are in `LD_LIBRARY_PATH` (DYLD_LIBRARY_PATH for OSX).
+and a backward variable
 
-## Contributing
-We welcome improvements from the community, please feel free to submit pull requests.
+$$\beta(t, s) = \sum_{y_t^T : a_s^S} \prod{t'=t}^T p_{t'}(y_{t'} \mid a(a_1^s || y_{t'}^T))$$
 
-## Reference
-* [Sequence Transduction with Recurrent Neural Networks](https://arxiv.org/abs/1211.3711)
-* [SPEECH RECOGNITION WITH DEEP RECURRENT NEURAL NETWORKS](https://arxiv.org/pdf/1303.5778.pdf)
-* [Baidu warp-ctc](https://github.com/baidu-research/warp-ctc)
-* [Awni implementation of transducer](https://github.com/awni/transducer)
+are introduced. These have the property
 
+$$L = -\log \alpha(T, S) = -\log \beta(1, 0)$$
+
+and adhere to the recursive equations
+
+$$\alpha(t, s) = p_t(\epsilon \mid a(a_1^s)) \alpha(t-1, s) + p_t(a_s \mid a(a_1^{s-1})) \alpha(t-1, s-1)$$
+
+and
+
+$$\beta(t, s) = p_t(\epsilon \mid a(a_1^s)) \beta(t+1, s) + p_t(a_{s+1} \mid a(a_1^s)) \beta(t+1, s+1)$$
+
+(excluding edge cases).
+
+### Gradients
+
+For the gradients it is straightforward to prove that for any $t$
+
+$$p(a_1^S) = \sum_{s=0}^S \alpha(t, s) \beta(t + 1, s)$$
+
+And thus
+$$\frac{\partial p(a_1^S)}{\partial p_t(y \mid a(a_1^s))}$$
+
+$$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'=0}^S \alpha(t, s') \beta(t+1, s'))$$
+
+$$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'=0}^S (p_t(\epsilon \mid a(a_1^{s'})) \alpha(t-1, s') +
+p_t(a_{s'} \mid a(a_1^{s'-1})) \alpha(t-1, s'-1)) \beta(t+1, s'))$$
+
+if $y = \epsilon$:
+
+$$= \alpha(t-1, s) \beta(t+1, s)$$
+
+if $y = a_{s+1}$:
+
+$$= \alpha(t-1, s) \beta(t+1, s+1)$$
+
+and $0$ otherwise.
+
+which means for the overall gradient
+
+$$\frac{\partial L}{\partial p_t(y \mid a(a_1^s))}$$
+
+$$= - \frac{\alpha(t-1, s) \beta(t+1, s)}{p(a_1^S)}$$ if $y = \epsilon$
+
+$$= - \frac{\alpha(t-1, s) \beta(t+1, s+1)}{p(a_1^S)}$$ if $y = a_{s+1}$
+
+$$= 0$$ otherwise.
+
+For expressing the derivative directly with respect to the logits $z_1^V$ where
+$p_t(y \mid a(a_1^s)) = \frac{e^{z_y}}{\sum_{v=1}^V e^{z_v}}$
+we can derive with some calculation that
+
+$$\frac{\partial L}{\partial z_y}$$
+
+$$= - \frac{\alpha(t-1, s) p(\epsilon \mid a(a_1^s)) \left(\beta(t+1, s) - \beta(t, s) \right)}{p(a_1^S)}$$ if $y =
+\epsilon$
+
+$$= - \frac{\alpha(t-1, s) p(\epsilon \mid a(a_1^s)) \left(\beta(t+1, s+1) - \beta(t, s) \right)}{p(a_1^S)}$$ if $y = a_
+{s+1}$
+
+$$= - \frac{\alpha(t-1, s) p(\epsilon \mid a(a_1^s)) \left(-\beta(t, s)\right)}{p(a_1^S)}$$ otherwise
+
+## Example
+
+Assume the following model posteriors $p_t(y \mid a(a_1^s))$ with $T = 4$, $S = 2$ and number of classes $V = 3$ with
+blank-index $0$.
+
+    // t = 1
+    0.6, 0.3, 0.1,  // s = 0
+    0.7, 0.1, 0.2,  // s = 1
+    0.5, 0.1, 0.4,  // s = 2
+    
+    // t = 2
+    0.5, 0.4, 0.1,  // s = 0
+    0.5, 0.1, 0.4,  // s = 1
+    0.8, 0.1, 0.1,  // s = 2
+    
+    // t = 3
+    0.4, 0.3, 0.3,  // s = 0
+    0.5, 0.1, 0.4,  // s = 1
+    0.7, 0.2, 0.1,  // s = 2
+    
+    // t = 4
+    0.8, 0.1, 0.1,  // s = 0
+    0.3, 0.1, 0.6,  // s = 1
+    0.8, 0.1, 0.1   // s = 2
+
+For $a_1^S = [1, 2]$ the valid alignments $y_1^T$ are as follows (with "." denoting blank):
+
+- . . 1 2
+- . 1 . 2
+- . 1 2 .
+- 1 . . 2
+- 1 . 2 .
+- 1 2 . .
+
+The 6 paths have probabilities of
+
+- 0.6 * 0.5 * 0.3 * 0.6 = 0.0540
+- 0.6 * 0.4 * 0.5 * 0.6 = 0.0720
+- 0.6 * 0.4 * 0.4 * 0.8 = 0.0768
+- 0.3 * 0.5 * 0.5 * 0.6 = 0.0450
+- 0.3 * 0.5 * 0.4 * 0.8 = 0.0480
+- 0.3 * 0.4 * 0.7 * 0.8 = 0.0672
+
+wich sum to a total of 0.363, i.e. 1.0134 in negative log space
+
+The alphas then are as follows in probability and log space:
+
+- a(0, 0) = 1.0 -> 0.0
+- a(1, 0) = 0.6 -> -0.51
+- a(1, 1) = 0.3 -> -1.20
+- a(2, 0) = 0.5 * a(1, 0) = 0.3 -> -1.20
+- a(2, 1) = 0.5 * a(1, 1) + 0.4 * a(1, 0) = 0.39 -> -0.94
+- a(2, 2) = 0.4 * a(1, 1) = 0.12 -> -2.12
+- a(3, 1) = 0.5 * a(2, 1) + 0.3 * a(2, 0) = 0.285 -> -1.26
+- a(3, 2) = 0.7 * a(2, 2) + 0.4 * a(2, 1) = 0.24 -> -1.43
+- a(4, 2) = 0.8 * a(3, 2) + 0.6 * a(3, 1) = 0.363 -> -1.01
+
+And the betas are as follows in probability and log space:
+
+- b(5, 2) = 1.0 -> 0.0
+- b(4, 2) = 0.8 -> -0.22
+- b(4, 1) = 0.6 -> -0.51
+- b(3, 2) = 0.7 * b(4, 2) = 0.56 -> -0.58
+- b(3, 1) = 0.5 * b(4, 1) + 0.4 * b(4, 2) = 0.62 -> -0.48
+- b(3, 0) = 0.3 * b(4, 1) = 0.18 -> -1.71
+- b(2, 1) = 0.5 * b(3, 1) + 0.4 * b(3, 2) = 0.534 -> -0.63
+- b(2, 0) = 0.5 * b(3, 0) + 0.4 * b(3, 1) = 0.338 -> -1.08
+- b(1, 0) = 0.6 * b(2, 0) + 0.3 * b(2, 1) = 0.363 -> -1.01
+
+As we can see $\alpha(4, 2) = -1.01 = \beta(0, 1)$ is the overall log-likelihood.
+
+Now, the gradients with respect to all the logits can be computed as
+
+    // t = 1
+    0.04, -0.14, 0.1,  // s = 0
+    0.0, 0.0, 0.0,  // s = 1
+    0.0, 0.0, 0.0,  // s = 2
+    
+    // t = 2
+    0.13, -0.19, 0.06,  // s = 0
+    -0.04, 0.04, -0.01,  // s = 1
+    0.0, 0.0, 0.0,  // s = 2
+    
+    // t = 3
+    0.06, -0.1, 0.04,  // s = 0
+    0.01, 0.07, -0.08,  // s = 1
+    -0.06, 0.04, 0.02,  // s = 2
+    
+    // t = 4
+    0.0, 0.0, 0.0,  // s = 0
+    0.14, 0.05, -0.19,  // s = 1
+    -0.11, 0.05, 0.05   // s = 2

@@ -1,26 +1,30 @@
-#pragma once
+#ifndef MONOTONIC_RNNT_REDUCE_H
+#define MONOTONIC_RNNT_REDUCE_H
+
+
+#include "cuda.h"
+#include "cuda_runtime.h"
 #include "rnnt_helper.h"
-#include "rnnt.h"
 
 const int warp_size = 32;
 
 template<int NT, typename T, typename Rop>
-struct CTAReduce;
-
-template<int NT, typename T, typename Rop>
 struct CTAReduce {
-    enum { Size = NT, Capacity = NT };
-    struct Storage { T shared[Capacity]; };
+    struct Storage {
+        T shared[NT];
+    };
 
-    __device__ static T reduce(int tid, T x, Storage& storage, int count, Rop g) {
-        T* s = storage.shared;
+    __device__ static T
+
+    reduce(int tid, T x, Storage &storage, int count, Rop g) {
+        T *s = storage.shared;
         s[tid] = x;
         __syncthreads();
 
         // Fold the data in half with each pass.
 #pragma unroll
-        for(int offset = NT / 2; offset >= warp_size; offset /= 2) {
-            if(tid + offset < count && tid < offset) {
+        for (int offset = NT / 2; offset >= warp_size; offset /= 2) {
+            if (tid + offset < count && tid < offset) {
                 // Read from the right half and store to the left half.
                 x = g(x, s[offset + tid]);
                 s[tid] = x;
@@ -28,29 +32,30 @@ struct CTAReduce {
             __syncthreads();
         }
 
-        T shuff;
+        T shuffle;
         for (int offset = warp_size / 2; offset > 0; offset /= 2) {
 #if CUDART_VERSION < 9000
             shuff = __shfl_down(x, offset);
 #else
-            shuff = __shfl_down_sync(0xFFFFFFFF, x, offset);
+            shuffle = __shfl_down_sync(0xFFFFFFFF, x, offset);
 #endif
             if (tid + offset < count && tid < offset)
-                x = g(x, shuff);
+                x = g(x, shuffle);
         }
         return x;
     }
 };
 
-template <int NT, typename Iop, typename Rop, typename T>
-__global__ void reduce_rows(Iop f, Rop g, const T* const acts, T* output, int num_rows) {
+template<int NT, typename Iop, typename Rop, typename T>
+__global__ void reduce_rows(Iop f, Rop g, const T *const acts, T *output, int num_rows) {
 
     typedef CTAReduce<NT, T, Rop> R;
-    __shared__ typename R::Storage storage;
+    __shared__
+    typename R::Storage storage;
 
-    int tid = threadIdx.x;
+    int tid = static_cast<int>(threadIdx.x);
     int idx = tid;
-    int col = blockIdx.x;
+    int col = static_cast<int>(blockIdx.x);
     T curr;
 
     // Each block works on a column
@@ -72,15 +77,16 @@ __global__ void reduce_rows(Iop f, Rop g, const T* const acts, T* output, int nu
         output[col] = curr;
 }
 
-template <int NT, typename Iop, typename Rop, typename T>
-__global__ void reduce_minus(Iop f, Rop g, const T* const acts, T* output, int num_rows) {
+template<int NT, typename Iop, typename Rop, typename T>
+__global__ void reduce_minus(Iop f, Rop g, const T *const acts, T *output, int num_rows) {
 
     typedef CTAReduce<NT, T, Rop> R;
-    __shared__ typename R::Storage storage;
+    __shared__
+    typename R::Storage storage;
 
-    int tid = threadIdx.x;
+    int tid = static_cast<int>(threadIdx.x);
     int idx = tid;
-    int col = blockIdx.x;
+    int col = static_cast<int>(blockIdx.x);
     T curr;
     T max = output[col];
 
@@ -106,26 +112,27 @@ __global__ void reduce_minus(Iop f, Rop g, const T* const acts, T* output, int n
 struct ReduceHelper {
 
     template<typename T, typename Iof, typename Rof>
-    static void impl(Iof f, Rof g, const T* const acts, T* output, int num_rows, int num_cols, bool minus, cudaStream_t stream) {
+    static void
+    impl(Iof f, Rof g, const T *const acts, T *output, int num_rows, int num_cols, bool minus, cudaStream_t stream) {
 
         int grid_size;
 
         if (minus) {
             grid_size = num_cols;
             reduce_minus<128><<<grid_size, 128, 0, stream>>>
-               (f, g, acts, output, num_rows);
+            (f, g, acts, output, num_rows);
 
         } else {
             grid_size = num_cols;
             reduce_rows<128><<<grid_size, 128, 0, stream>>>
-               (f, g, acts, output, num_rows);
+            (f, g, acts, output, num_rows);
         }
     }
 };
 
 
-template<typename T, typename Iof, typename  Rof>
-rnntStatus_t reduce(Iof f, Rof g, const T* const acts, T* output, int rows, int cols, bool minus, cudaStream_t stream) {
+template<typename T, typename Iof, typename Rof>
+RNNTStatus reduce(Iof f, Rof g, const T *const acts, T *output, int rows, int cols, bool minus, cudaStream_t stream) {
     ReduceHelper::impl(f, g, acts, output, rows, cols, minus, stream);
     cudaStreamSynchronize(stream);
     cudaError_t err = cudaGetLastError();
@@ -136,12 +143,13 @@ rnntStatus_t reduce(Iof f, Rof g, const T* const acts, T* output, int rows, int 
 }
 
 template<typename T>
-rnntStatus_t reduce_exp(const T* const acts, T *denom, int rows, int cols, bool minus, cudaStream_t stream) {
-    return reduce(rnnt_helper::exponential<T>(), rnnt_helper::add<T>(), acts, denom, rows, cols, minus, stream);
+RNNTStatus reduce_exp(const T *const acts, T *get_denom, int rows, int cols, bool minus, cudaStream_t stream) {
+    return reduce(rnnt_helper::exponential<T>(), rnnt_helper::add<T>(), acts, get_denom, rows, cols, minus, stream);
 }
 
 template<typename T>
-rnntStatus_t reduce_max(const T* const acts, T *denom, int rows, int cols, bool minus, cudaStream_t stream) {
-    return reduce(rnnt_helper::identity<T>(), rnnt_helper::maximum<T>(), acts, denom, rows, cols, minus, stream);
+RNNTStatus reduce_max(const T *const acts, T *get_denom, int rows, int cols, bool minus, cudaStream_t stream) {
+    return reduce(rnnt_helper::identity<T>(), rnnt_helper::maximum<T>(), acts, get_denom, rows, cols, minus, stream);
 }
 
+#endif //MONOTONIC_RNNT_REDUCE_H

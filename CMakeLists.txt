@@ -1,136 +1,116 @@
-IF (APPLE)
-    cmake_minimum_required(VERSION 3.4)
-ELSE()
-    cmake_minimum_required(VERSION 2.8)
-ENDIF()
+cmake_minimum_required(VERSION 3.18)
+project(monotonic_rnnt LANGUAGES CXX CUDA)
 
-project(rnnt_release)
-
-IF (NOT APPLE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
-ENDIF()
-
-IF (APPLE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2")
-    add_definitions(-DAPPLE)
-ENDIF()
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
+add_compile_definitions(-D_GLIBCXX_USE_CXX11_ABI=1)
 
 include_directories(include)
 
-FIND_PACKAGE(CUDA)
-MESSAGE(STATUS "cuda found ${CUDA_FOUND}")
+option(USE_NAIVE_KERNEL "use naive alpha-beta kernel" ON)
+option(DEBUG_TIME "output kernel time" ON)
+option(DEBUG_KERNEL "output alpha beta" ON)
+option(WITH_GPU "compile monotonic-rnnt with cuda." ON)
+option(WITH_OMP "compile monotonic-rnnt with openmp." ON)
 
-option(USE_NAIVE_KERNEL "use naive alpha-beta kernel" OFF)
-option(DEBUG_TIME "output kernel time" OFF)
-option(DEBUG_KERNEL "output alpha beta" OFF)
 if (USE_NAIVE_KERNEL)
     add_definitions(-DUSE_NAIVE_KERNEL)
-endif()
+endif ()
 if (DEBUG_TIME)
     add_definitions(-DDEBUG_TIME)
-endif()
+endif ()
 if (DEBUG_KERNEL)
     add_definitions(-DDEBUG_KERNEL)
-endif()
+endif ()
 
-option(WITH_GPU "compile warp-rnnt with cuda." ${CUDA_FOUND})
-option(WITH_OMP "compile warp-rnnt with openmp." ON)
-
-if(NOT WITH_OMP)
+if (NOT WITH_OMP)
     add_definitions(-DRNNT_DISABLE_OMP)
-endif()
+endif ()
 if (WITH_OMP)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp")
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -Xcompiler -fopenmp")
-endif()
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcompiler -fopenmp")
+endif ()
 
-# need to be at least 30 or __shfl_down in reduce wont compile
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_30,code=sm_30 -O2")
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_35,code=sm_35")
+set(CMAKE_CXX_STANDARD 17)
 
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_50,code=sm_50")
-set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_52,code=sm_52")
-IF(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 5)
-  SET(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -D_MWAITXINTRIN_H_INCLUDED -D_FORCE_INLINES")
-ENDIF()
+#always skip for linux
+set(CMAKE_SKIP_RPATH TRUE)
 
-IF (CUDA_VERSION GREATER 7.6)
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_60,code=sm_60")
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_61,code=sm_61")
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_62,code=sm_62")
-ENDIF()
+if (WITH_GPU)
+    message(STATUS "Building shared library with GPU support")
+    message(STATUS "Use CUDA version ${CMAKE_CUDA_COMPILER_VERSION}.")
 
-IF (CUDA_VERSION GREATER 8.9)
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_70,code=sm_70")
-ENDIF()
+    add_definitions(-DRNNT_ENABLE_GPU)
 
-IF (CUDA_VERSION GREATER 9.9)
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -gencode arch=compute_75,code=sm_75")
-ENDIF()
+    set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -D_MWAITXINTRIN_H_INCLUDED -D_FORCE_INLINES")
+    list(APPEND CMAKE_CUDA_ARCHITECTURES 60 61 62)
+    if (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 9.0)
+        list(APPEND CMAKE_CUDA_ARCHITECTURES 70)
+    endif ()
+    if (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 10.0)
+        list(APPEND CMAKE_CUDA_ARCHITECTURES 75)
+    endif ()
+    if (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 11.1)
+        list(APPEND CMAKE_CUDA_ARCHITECTURES 86)
+    endif ()
+    if (CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 11.8)
+        list(APPEND CMAKE_CUDA_ARCHITECTURES 89 90)
+    endif ()
+    message(STATUS "Compiling with compute capabilities ${CMAKE_CUDA_ARCHITECTURES}")
 
-if (NOT APPLE)
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} --std=c++11")
-    set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS}")
-ENDIF()
+    add_library(monotonic_rnnt_lib SHARED src/rnnt_entrypoint.cu)
+    target_include_directories(monotonic_rnnt_lib PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 
+    add_executable(test_time_gpu tests/test_time.cu tests/random.cpp)
+    target_link_libraries(test_time_gpu)
 
-IF (APPLE)
-    EXEC_PROGRAM(uname ARGS -v  OUTPUT_VARIABLE DARWIN_VERSION)
-    STRING(REGEX MATCH "[0-9]+" DARWIN_VERSION ${DARWIN_VERSION})
-    MESSAGE(STATUS "DARWIN_VERSION=${DARWIN_VERSION}")
+    add_executable(test_gpu tests/test_gpu.cu tests/random.cpp)
+    target_link_libraries(test_gpu)
+else ()
+    message(STATUS "Building shared library with no GPU support")
 
-    #for el capitain have to use rpath
+    add_library(monotonic_rnnt_lib STATIC src/status.cpp)
+endif ()
 
-    IF (DARWIN_VERSION LESS 15)
-        set(CMAKE_SKIP_RPATH TRUE)
-    ENDIF ()
+find_package(Python3 COMPONENTS Interpreter)
+execute_process(
+        COMMAND "${Python3_EXECUTABLE}" -c "import tensorflow as tf; print(tf.sysconfig.get_include())"
+        RESULT_VARIABLE _tensorflow_include_res
+        OUTPUT_VARIABLE Tensorflow_INCLUDE_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+execute_process(
+        COMMAND "${Python3_EXECUTABLE}" -c "import tensorflow as tf; print(tf.sysconfig.get_lib())"
+        RESULT_VARIABLE _tensorflow_lib_res
+        OUTPUT_VARIABLE Tensorflow_LIB_DIR
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+)
 
-ELSE()
-    #always skip for linux
-    set(CMAKE_SKIP_RPATH TRUE)
-ENDIF()
+find_library(
+        Tensorflow_FRAMEWORK
+        NAMES tensorflow_framework
+        HINTS ${Tensorflow_LIB_DIR} /usr/local/lib/tensorflow
+        PATH_SUFFIXES lib REQUIRED)
 
+add_library(tf_operation SHARED tensorflow_binding/monotonic_rnnt_op.cc)
+target_include_directories(tf_operation PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+target_include_directories(tf_operation PUBLIC ${Tensorflow_INCLUDE_DIR})
+target_link_libraries(tf_operation PUBLIC ${Tensorflow_FRAMEWORK})
+add_custom_target(
+        tf_test
+        COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=$<TARGET_FILE_DIR:tf_operation>:$ENV{PYTHONPATH} ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tensorflow_binding/test.py
+        DEPENDS tf_operation
+        COMMENT "Running python test for tensorflow operation"
+)
 
-IF (WITH_GPU)
+add_executable(test_cpu tests/test_cpu.cpp tests/random.cpp src/rnnt_entrypoint.cpp src/status.cpp)
+target_link_libraries(test_cpu)
 
-    MESSAGE(STATUS "Building shared library with GPU support")
+add_executable(test_time tests/test_time.cpp tests/random.cpp src/rnnt_entrypoint.cpp src/status.cpp)
+target_link_libraries(test_time)
 
-    CUDA_ADD_LIBRARY(warprnnt SHARED src/rnnt_entrypoint.cu)
-    IF (!Torch_FOUND)
-        TARGET_LINK_LIBRARIES(warprnnt ${CUDA_curand_LIBRARY})
-    ENDIF()
-
-    cuda_add_executable(test_time_gpu tests/test_time.cu tests/random.cpp )
-    TARGET_LINK_LIBRARIES(test_time_gpu warprnnt ${CUDA_curand_LIBRARY})
-    SET_TARGET_PROPERTIES(test_time_gpu PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} --std=c++11")
-
-    cuda_add_executable(test_gpu tests/test_gpu.cu tests/random.cpp )
-    TARGET_LINK_LIBRARIES(test_gpu warprnnt ${CUDA_curand_LIBRARY})
-    SET_TARGET_PROPERTIES(test_gpu PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} --std=c++11")
-
-ELSE()
-    MESSAGE(STATUS "Building shared library with no GPU support")
-
-    if (NOT APPLE)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2")
-    ENDIF()
-
-    ADD_LIBRARY(warprnnt SHARED src/rnnt_entrypoint.cpp)
-
-ENDIF()
-
-
-add_executable(test_cpu tests/test_cpu.cpp tests/random.cpp )
-TARGET_LINK_LIBRARIES(test_cpu warprnnt)
-SET_TARGET_PROPERTIES(test_cpu PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} --std=c++11")
-
-add_executable(test_time tests/test_time.cpp tests/random.cpp )
-TARGET_LINK_LIBRARIES(test_time warprnnt)
-SET_TARGET_PROPERTIES(test_time PROPERTIES COMPILE_FLAGS "${CMAKE_CXX_FLAGS} --std=c++11")
-
-INSTALL(TARGETS warprnnt
+INSTALL(TARGETS monotonic_rnnt_lib
         RUNTIME DESTINATION "bin"
         LIBRARY DESTINATION "lib"
         ARCHIVE DESTINATION "lib")
 
-INSTALL(FILES include/rnnt.h DESTINATION "include")
+INSTALL(FILES include/rnnt_entrypoint.h DESTINATION "include")

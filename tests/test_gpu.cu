@@ -39,7 +39,7 @@ bool small_test() {
 
     float score;
 
-    rnntOptions options{};
+    RNNTOptions options{};
     options.maxT = T;
     options.maxU = U;
     options.loc = RNNT_GPU;
@@ -141,7 +141,7 @@ bool options_test() {
     std::vector<float> grads(acts.size());
     std::vector<float> scores(2);
 
-    rnntOptions options{};
+    RNNTOptions options{};
     options.maxT = T;
     options.maxU = L;
     options.loc = RNNT_GPU;
@@ -246,7 +246,7 @@ bool inf_test() {
 
     float cost;
 
-    rnntOptions options{};
+    RNNTOptions options{};
     options.maxT = T;
     options.maxU = L;
     options.loc = RNNT_GPU;
@@ -307,7 +307,7 @@ bool inf_test() {
 
 void numeric_grad(float* acts, int* flat_labels, int* label_lengths,
                 int* sizes, int alphabet_size, int minibatch, 
-                void* rnnt_gpu_workspace, rnntOptions& options, std::vector<float>& num_grad) {
+                void* rnnt_gpu_workspace, RNNTOptions& options, std::vector<float>& num_grad) {
 
     float epsilon = 1e-2;
     float act;
@@ -375,7 +375,7 @@ bool grad_check(int T, int L, int alphabet_size,
 
     std::vector<float> grads(acts.size());
 
-    rnntOptions options{};
+    RNNTOptions options{};
     options.maxT = T;
     options.maxU = L;
     options.loc = RNNT_GPU;

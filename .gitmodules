@@ -1,3 +1,0 @@
-[submodule "mxnet_binding"]
-	path = mxnet_binding
-	url = https://github.com/HawkAaron/mxnet-transducer

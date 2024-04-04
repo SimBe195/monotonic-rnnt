@@ -51,7 +51,7 @@ bool run_test(int B, int T, int L, int A, int num_threads) {
 
     std::vector<float> costs(B);
 
-    rnntOptions options{};
+    RNNTOptions options{};
     options.maxT = T;
     options.maxU = L + 1;
     options.blank_label = 0;
