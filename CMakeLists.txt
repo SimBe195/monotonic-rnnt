@@ -2,14 +2,13 @@ cmake_minimum_required(VERSION 3.18)
 project(monotonic_rnnt LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
-add_compile_definitions(-D_GLIBCXX_USE_CXX11_ABI=1)
 
 include_directories(include)
 
 option(USE_NAIVE_KERNEL "use naive alpha-beta kernel" ON)
-option(DEBUG_TIME "output kernel time" ON)
-option(DEBUG_KERNEL "output alpha beta" ON)
-option(WITH_GPU "compile monotonic-rnnt with cuda." ON)
+option(DEBUG_TIME "output kernel time" OFF)
+option(DEBUG_KERNEL "output alpha beta" OFF)
+option(WITH_GPU "compile monotonic-rnnt with cuda." OFF)
 option(WITH_OMP "compile monotonic-rnnt with openmp." ON)
 
 if (USE_NAIVE_KERNEL)
@@ -36,7 +35,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_SKIP_RPATH TRUE)
 
 if (WITH_GPU)
-    message(STATUS "Building shared library with GPU support")
+    message(STATUS "Building GPU version")
     message(STATUS "Use CUDA version ${CMAKE_CUDA_COMPILER_VERSION}.")
 
     add_definitions(-DRNNT_ENABLE_GPU)
@@ -56,19 +55,12 @@ if (WITH_GPU)
         list(APPEND CMAKE_CUDA_ARCHITECTURES 89 90)
     endif ()
     message(STATUS "Compiling with compute capabilities ${CMAKE_CUDA_ARCHITECTURES}")
-
-    add_library(monotonic_rnnt_lib SHARED src/rnnt_entrypoint.cu)
-    target_include_directories(monotonic_rnnt_lib PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
-
-    add_executable(test_time_gpu tests/test_time.cu tests/random.cpp)
-    target_link_libraries(test_time_gpu)
-
-    add_executable(test_gpu tests/test_gpu.cu tests/random.cpp)
-    target_link_libraries(test_gpu)
+    add_executable(test_time_gpu tests/test_time.cu tests/random.cpp src/status.cpp)
+    add_executable(test_gpu tests/test_gpu.cu tests/random.cpp src/status.cpp)
 else ()
-    message(STATUS "Building shared library with no GPU support")
-
-    add_library(monotonic_rnnt_lib STATIC src/status.cpp)
+    message(STATUS "Building CPU version")
+    add_executable(test_time tests/test_time.cpp tests/random.cpp src/status.cpp)
+    add_executable(test_cpu tests/test_cpu.cpp tests/random.cpp src/status.cpp)
 endif ()
 
 find_package(Python3 COMPONENTS Interpreter)
@@ -91,7 +83,8 @@ find_library(
         HINTS ${Tensorflow_LIB_DIR} /usr/local/lib/tensorflow
         PATH_SUFFIXES lib REQUIRED)
 
-add_library(tf_operation SHARED tensorflow_binding/monotonic_rnnt_op.cc)
+add_library(tf_operation SHARED tensorflow_binding/monotonic_rnnt_op.cc src/status.cpp
+        src/cpu_rnnt.cpp)
 target_include_directories(tf_operation PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
 target_include_directories(tf_operation PUBLIC ${Tensorflow_INCLUDE_DIR})
 target_link_libraries(tf_operation PUBLIC ${Tensorflow_FRAMEWORK})
@@ -102,15 +95,9 @@ add_custom_target(
         COMMENT "Running python test for tensorflow operation"
 )
 
-add_executable(test_cpu tests/test_cpu.cpp tests/random.cpp src/rnnt_entrypoint.cpp src/status.cpp)
-target_link_libraries(test_cpu)
-
-add_executable(test_time tests/test_time.cpp tests/random.cpp src/rnnt_entrypoint.cpp src/status.cpp)
-target_link_libraries(test_time)
-
-INSTALL(TARGETS monotonic_rnnt_lib
-        RUNTIME DESTINATION "bin"
-        LIBRARY DESTINATION "lib"
-        ARCHIVE DESTINATION "lib")
-
-INSTALL(FILES include/rnnt_entrypoint.h DESTINATION "include")
+#INSTALL(TARGETS monotonic_rnnt_lib
+#        RUNTIME DESTINATION "bin"
+#        LIBRARY DESTINATION "lib"
+#        ARCHIVE DESTINATION "lib")
+#
+#INSTALL(FILES include/rnnt_entrypoint.h DESTINATION "include")

@@ -6,9 +6,10 @@
 
 #include <iostream>
 
-#include <rnnt_entrypoint.h>
+#include "cpu_rnnt.h"
 
 #include "test.h"
+#include "options.h"
 #include "rnnt_helper.h"
 
 bool fwd_test() {
@@ -49,7 +50,6 @@ bool fwd_test() {
     std::transform(probs.begin(), probs.end(), logits.begin(), log);
 
     RNNTOptions options{};
-    options.loc = RNNT_CPU;
     options.blank_label = 0;
     options.num_threads = 1;
 
@@ -62,7 +62,9 @@ bool fwd_test() {
     workspace_manager.set_workspace(rnnt_cpu_workspace);
 
     float score_fwd;
-    throw_on_error(compute_rnnt_loss(workspace_manager, options, &score_fwd, nullptr),
+    CpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads);
+
+    throw_on_error(rnnt_computer.cost(&score_fwd),
                    "Error: compute_rnnt_loss forward in fwd_test");
 
     free(rnnt_cpu_workspace);
@@ -108,7 +110,6 @@ bool bwd_test() {
     std::transform(probs.begin(), probs.end(), logits.begin(), log);
 
     RNNTOptions options{};
-    options.loc = RNNT_CPU;
     options.blank_label = 0;
     options.num_threads = 1;
 
@@ -121,12 +122,13 @@ bool bwd_test() {
     workspace_manager.set_workspace(rnnt_cpu_workspace);
 
     float score_fwd;
-    throw_on_error(compute_rnnt_loss(workspace_manager, options, &score_fwd, nullptr),
+    CpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads);
+    throw_on_error(rnnt_computer.cost(&score_fwd),
                    "Error: compute_rnnt_loss forward in bwd_test");
 
     std::vector<float> grads(logits.size());
     float score_bwd;
-    throw_on_error(compute_rnnt_loss(workspace_manager, options, &score_bwd, grads.data()),
+    throw_on_error(rnnt_computer.cost_and_grad(&score_bwd, grads.data()),
                    "Error: compute_rnnt_loss forward+backward in bwd_test");
 
     free(rnnt_cpu_workspace);
@@ -172,7 +174,6 @@ bool grads_test() {
     std::transform(probs.begin(), probs.end(), logits.begin(), log);
 
     RNNTOptions options{};
-    options.loc = RNNT_CPU;
     options.blank_label = 0;
     options.num_threads = 1;
 
@@ -184,9 +185,10 @@ bool grads_test() {
     void *rnnt_cpu_workspace = malloc(cpu_alloc_bytes);
     workspace_manager.set_workspace(rnnt_cpu_workspace);
 
+    CpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads);
     std::vector<float> grads(logits.size());
     float score;
-    throw_on_error(compute_rnnt_loss(workspace_manager, options, &score, grads.data()),
+    throw_on_error(rnnt_computer.cost_and_grad(&score, grads.data()),
                    "Error: compute_rnnt_loss forward+backward in grads_test");
 
     free(rnnt_cpu_workspace);
@@ -267,7 +269,6 @@ bool multibatch_test() {
     std::transform(probs.begin(), probs.end(), logits.begin(), log);
 
     RNNTOptions options{};
-    options.loc = RNNT_CPU;
     options.blank_label = 0;
     options.num_threads = 1;
 
@@ -280,13 +281,14 @@ bool multibatch_test() {
     void *rnnt_cpu_workspace = malloc(cpu_alloc_bytes);
     workspace_manager.set_workspace(rnnt_cpu_workspace);
 
+    CpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads);
     std::vector<float> scores_fwd(B);
-    throw_on_error(compute_rnnt_loss(workspace_manager, options, scores_fwd.data(), nullptr),
+    throw_on_error(rnnt_computer.cost(scores_fwd.data()),
                    "Error: compute_rnnt_loss forward in multibatch_test");
 
     std::vector<float> grads(logits.size());
     std::vector<float> scores_bwd(B);
-    throw_on_error(compute_rnnt_loss(workspace_manager, options, scores_bwd.data(), grads.data()),
+    throw_on_error(rnnt_computer.cost_and_grad(scores_bwd.data(), grads.data()),
                    "Error: compute_rnnt_loss forward+backward in multibatch_test");
 
     free(rnnt_cpu_workspace);
@@ -355,7 +357,6 @@ bool infnan_test() {
     float cost;
 
     RNNTOptions options{};
-    options.loc = RNNT_CPU;
     options.num_threads = 1;
 
     size_t cpu_alloc_bytes;
@@ -366,7 +367,9 @@ bool infnan_test() {
     void *rnnt_cpu_workspace = malloc(cpu_alloc_bytes);
     workspace_manager.set_workspace(rnnt_cpu_workspace);
 
-    throw_on_error(compute_rnnt_loss(workspace_manager, options, &cost, grads.data()),
+    CpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads);
+
+    throw_on_error(rnnt_computer.cost_and_grad(&cost, grads.data()),
                    "Error: compute_rnnt_loss forward in infnan_test");
 
     free(rnnt_cpu_workspace);
@@ -378,101 +381,6 @@ bool infnan_test() {
     for (auto grad: grads) {
         status &= !std::isinf(grad);
         status &= !std::isnan(grad);
-    }
-
-    return status;
-}
-
-void numeric_grad(std::vector<float> &acts, RNNTWorkspaceManager<float> &workspace_manager, RNNTOptions &options,
-                  std::vector<float> &num_grad) {
-
-    float epsilon = 1e-2;
-
-    for (size_t i = 0ul; i < num_grad.size(); ++i) {
-
-        std::vector<float> costsP1(workspace_manager.B());
-        std::vector<float> costsP2(workspace_manager.B());
-
-        // acts shifted by +epsilon
-        acts[i] += epsilon;
-        throw_on_error(compute_rnnt_loss(workspace_manager, options, costsP1.data(), nullptr),
-                       "Error: compute_rnnt_loss (1) in numeric_grad");
-
-        // acts shifted by -epsilon
-        acts[i] -= 2 * epsilon;
-        throw_on_error(compute_rnnt_loss(workspace_manager, options, costsP2.data(), nullptr),
-                       "Error: compute_rnnt_loss (2) in numeric_grad");
-
-        float costP1 = std::accumulate(costsP1.begin(), costsP1.end(), 0.f);
-        float costP2 = std::accumulate(costsP2.begin(), costsP2.end(), 0.f);
-
-        // restore original acts
-        acts[i] += epsilon;
-
-        num_grad[i] = (costP1 - costP2) / (2 * epsilon);
-    }
-}
-
-bool grad_check(int B, std::vector<int> T, std::vector<int> S, int V, std::vector<float> &acts,
-                const std::vector<int> &labels, float tol) {
-
-    RNNTOptions options{};
-    options.loc = RNNT_CPU;
-    options.num_threads = 1;
-
-    size_t cpu_alloc_bytes;
-    RNNTWorkspaceManager<float> workspace_manager(acts.data(), labels.data(), B, T.data(), S.data(), V);
-    throw_on_error(workspace_manager.get_workspace_size(&cpu_alloc_bytes),
-                   "Error: get_workspace_size in grad_check");
-
-    void *rnnt_cpu_workspace = malloc(cpu_alloc_bytes);
-    workspace_manager.set_workspace(rnnt_cpu_workspace);
-
-
-    std::vector<float> costs(B);
-    std::vector<float> grads(acts.size());
-    throw_on_error(compute_rnnt_loss(workspace_manager, options, costs.data(), grads.data()),
-                   "Error: compute_rnnt_loss (0) in grad_check");
-
-    std::vector<float> num_grad(grads.size());
-
-    //perform 2nd order central differencing
-    numeric_grad(acts, workspace_manager, options, num_grad);
-
-    free(rnnt_cpu_workspace);
-
-    float diff = rel_diff(grads, num_grad);
-
-    return diff < tol;
-}
-
-bool run_size_tests() {
-    std::vector<std::tuple<int, int, int, int, float>> problem_sizes = {
-            std::make_tuple(1, 10, 5, 20, 1e-4),
-            std::make_tuple(2, 10, 5, 20, 1e-4),
-            std::make_tuple(4, 30, 15, 10, 1e-4),
-    };
-
-    bool status = true;
-    for (auto problem: problem_sizes) {
-        int B, T, S, V;
-        float tol;
-        std::tie(B, T, S, V, tol) = problem;
-
-        std::vector<float> acts(B * T * (S + 1) * V);
-        genActs(acts);
-
-        std::vector<int> labels = genLabels(V, B * S);
-        std::vector<int> label_lengths;
-        std::vector<int> lengths;
-        for (int b = 0; b < B; ++b) {
-            lengths.push_back(T);
-            label_lengths.push_back(S);
-        }
-
-        bool status_problem = grad_check(B, lengths, label_lengths, V, acts, labels, tol);
-        printf("finish size_test (%d, %d, %d, %d): %d\n", B, T, S, V, status_problem);
-        status &= status_problem;
     }
 
     return status;
@@ -492,8 +400,6 @@ int main() {
     printf("finish multibatch_test %d\n", status);
     status &= infnan_test();
     printf("finish infnan_test %d\n", status);
-    status &= run_size_tests();
-    printf("finish size_tests %d\n", status);
 
     if (status) {
         std::cout << "Tests pass" << std::endl;

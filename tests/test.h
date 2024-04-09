@@ -6,7 +6,7 @@
 #include <limits>
 #include <numeric>
 
-#include <rnnt_entrypoint.h>
+#include "status.h"
 
 inline void throw_on_error(RNNTStatus status, const char *message) {
     if (status != RNNT_STATUS_SUCCESS) {
@@ -31,36 +31,6 @@ float rel_diff(const std::vector<float> &grad,
     }
 
     return diff / tot;
-}
-
-// Numerically stable softmax for a minibatch of 1
-void softmax(const float *const acts,
-             int alphabet_size, int T,
-             float *probs, bool applylog) {
-
-    for (int t = 0; t < T; ++t) {
-
-        float max_activation =
-                -std::numeric_limits<float>::infinity();
-
-        for (int v = 0; v < alphabet_size; ++v) {
-            max_activation =
-                    std::max(max_activation, acts[t * alphabet_size + v]);
-        }
-
-        float denom = 0;
-        for (int v = 0; v < alphabet_size; ++v) {
-            denom += std::exp(acts[t * alphabet_size + v] - max_activation);
-        }
-
-        for (int v = 0; v < alphabet_size; ++v) {
-            probs[t * alphabet_size + v] =
-                    std::exp(acts[t * alphabet_size + v] - max_activation) / denom;
-            if (applylog) {
-                probs[t * alphabet_size + v] = std::log(probs[t * alphabet_size + v]);
-            }
-        }
-    }
 }
 
 #endif //MONOTONIC_RNNT_TEST_H

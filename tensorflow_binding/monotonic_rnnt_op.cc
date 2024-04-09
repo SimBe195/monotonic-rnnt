@@ -1,18 +1,17 @@
 #ifdef RNNT_ENABLE_GPU
-#define EIGEN_USE_GPU
 
-#include <cuda.h>
 #include "gpu_workspace_manager.h"
 #include "gpu_rnnt.h"
 
+#else
+#include "workspace_manager.h"
+#include "cpu_rnnt.h"
 #endif
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/bounds_check.h"
 #include "tensorflow/core/framework/shape_inference.h"
-#include "workspace_manager.h"
-#include "cpu_rnnt.h"
 
 namespace tf = tensorflow;
 
@@ -29,7 +28,7 @@ REGISTER_OP("MonotonicRNNT")
                     c->set_output(0, c->MakeShape({c->Dim(c->input(1), 0)}));
                     // grads shape = shape of acts
                     c->set_output(1, c->input(0));
-                    return tf::Status();
+                    return tf::Status::OK();
                 });
 
 
@@ -102,15 +101,16 @@ namespace monotonic_rnnt {
 
             // set up workspace
 #ifdef RNNT_ENABLE_GPU
-            GPURNNTWorkspaceManager<float>(acts_t.data(), labels_t.data(), static_cast<int>(B), input_lengths_t.data(),
-                                           label_lengths_t.data(), static_cast<int>(V));
+            GPURNNTWorkspaceManager<float> workspace_manager(acts_t.data(), labels_t.data(), static_cast<int>(B),
+                                                             input_lengths_t.data(),
+                                                             label_lengths_t.data(), static_cast<int>(V));
 #else
             RNNTWorkspaceManager<float> workspace_manager(acts_t.data(), labels_t.data(), static_cast<int>(B),
                                                           input_lengths_t.data(), label_lengths_t.data(),
                                                           static_cast<int>(V));
 #endif
             size_t workspace_size_bytes;
-            auto rnnt_status = workspace_manager.get_workspace_size(&workspace_size_bytes);
+            auto rnnt_status = workspace_manager.get_workspace_size(&workspace_size_bytes, options.stream);
 
             OP_REQUIRES(ctx, rnnt_status == RNNT_STATUS_SUCCESS,
                         tf::errors::Internal("monotonic_rnnt error in get_workspace_size: ",
@@ -120,10 +120,13 @@ namespace monotonic_rnnt {
             tf::Tensor workspace;
             OP_REQUIRES_OK(ctx, ctx->allocate_temp(tf::DT_UINT8, workspace_shape, &workspace));
             auto workspace_t = workspace.flat<uint8_t>();
-            workspace_manager.set_workspace(workspace_t.data());
+            workspace_manager.set_workspace(workspace_t.data(), options.stream);
 
             // compute RNNT
 #ifdef RNNT_ENABLE_GPU
+            GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads,
+                                                 options.stream);
+            rnnt_status = rnnt_computer.cost_and_grad(costs_t.data(), grads_t.data());
 
 #else
 
@@ -161,17 +164,16 @@ namespace monotonic_rnnt {
         }
 
         RNNTOptions create_options(tf::OpKernelContext *ctx) override {
-            auto cuda_stream = ctx->eigen_device<Eigen::GpuDevice>().stream();
+            CUstream cuda_stream;
+            cudaStreamCreate(&cuda_stream);
             auto options = RNNTOptions{};
             options.stream = cuda_stream;
             return options;
         }
     };
 
-    REGISTER_KERNEL_BUILDER(Name("MonotonicRNNT").Device(::tensorflow::DEVICE_GPU)
-                                    .HostMemory("costs"),
+    REGISTER_KERNEL_BUILDER(Name("MonotonicRNNT").Device(::tensorflow::DEVICE_GPU).HostMemory("costs"),
                             MonotonicRNNTOpGPU);
-#undef EIGEN_ENABLE_GPU
 #else
 
     class MonotonicRNNTOpCPU : public MonotonicRNNTOpBase {

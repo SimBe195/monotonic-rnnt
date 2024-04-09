@@ -238,7 +238,7 @@ CpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
 #ifdef DEBUG_TIME
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
-    std::cout << "DEBUG: log_softmax denom" << elapsed.count() * 1000 << " ms\n";
+    std::cout << "DEBUG: log_softmax denom " << elapsed.count() * 1000 << " ms\n";
     start = std::chrono::high_resolution_clock::now();
 #endif
 

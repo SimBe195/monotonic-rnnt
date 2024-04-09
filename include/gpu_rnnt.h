@@ -52,21 +52,21 @@ private:
 template<typename ProbT>
 void
 GpuRNNTComputer<ProbT>::setup_log_softmax_denom() {
+    const int num_denoms = workspace_manager_.num_denoms(stream_);
+    const int V = workspace_manager_.V_host();
 
     // trans_acts + pred_acts -> log_softmax denominator
-    reduce_max(workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.V,
-               workspace_manager_.num_denoms(), false, stream_);
-    reduce_exp(workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.V,
-               workspace_manager_.num_denoms(), true, stream_);
+    reduce_max(workspace_manager_.acts, workspace_manager_.denom, V, num_denoms, false, stream_);
+    reduce_exp(workspace_manager_.acts, workspace_manager_.denom, V, num_denoms, true, stream_);
 }
 
 template<typename ProbT>
 RNNTStatus
 GpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
-    int B = workspace_manager_.B_host(stream_);
+    int B = workspace_manager_.B_host();
     auto T = workspace_manager_.T_host(stream_);
     auto S = workspace_manager_.S_host(stream_);
-    int V = workspace_manager_.V_host(stream_);
+    int V = workspace_manager_.V_host();
 
     bool training = (grads != nullptr);
 
@@ -81,7 +81,7 @@ GpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
 #ifdef DEBUG_TIME
     auto start = std::chrono::high_resolution_clock::now();
 #endif
-    setup_log_softmax_denom(workspace_manager_.acts, workspace_manager_.denom);
+    setup_log_softmax_denom();
 #ifdef DEBUG_TIME
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -122,13 +122,11 @@ GpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
             blank_
     );
 #else
-    compute_alphas_kernel<ProbT><<<minibatch_, maxS_ + 1, 0, stream_>>>(
-            acts, get_denom, alphas, alpha_sil, llForward,
-                                                                        input_lengths, label_lengths, labels,
-                                                                        silence_indices, num_sil_indices, minibatch_,
-                                                                        start_indices, sil_start_indices,
-                                                                        act_start_indices, maxS_, alphabet_size_,
-                                                                        blank_, silence_);
+    compute_alphas_kernel<ProbT><<<B, S_max + 1, 0, stream_>>>(
+            workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.alphas, workspace_manager_.ll_forward,
+            workspace_manager_.T, workspace_manager_.S, workspace_manager_.V, workspace_manager_.labels,
+            workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices, workspace_manager_.S_max,
+            blank_);
 #endif
 #ifdef DEBUG_TIME
     cudaStreamSynchronize(stream_);
@@ -137,18 +135,25 @@ GpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
     std::cout << "DEBUG: compute_alphas_kernel " << elapsed.count() * 1000 << " ms\n";
 #endif
 #ifdef DEBUG_KERNEL
-    auto alphas = workspace_manager_.alphas_host();
+    auto alphas = workspace_manager_.alphas_host(stream_);
+    auto var_start_offsets = workspace_manager_.var_start_offsets_host(stream_);
     for (int b = 0; b < B; b++) {
-        printf("gpu alphas\n");
         printf("gpu alphas (b = %d, T = %d, S = %d):\n", b, T[b], S[b]);
-        for (int t = -1; t < T; t++) {
-            for (int s = 0; s <= std::min(t, S); s++) {
-                printf("%.2f ", alpha(alphas, t, s, T[b], S[b]));
+        float* alphas_b = alphas.data() + var_start_offsets[b];
+        for (int s = S[b]; s >= 0; --s) {
+            for (int t = -1; t < T[b]; ++t) {
+                printf("%.2f ", alpha(alphas_b, t, s, T[b], S[b]));
             }
             printf("\n");
         }
         printf("\n");
     }
+    printf("forward likelihood\n");
+    auto ll_forward = workspace_manager_.ll_forward_host(stream_);
+    for (int b = 0; b < B; ++b) {
+        printf("%.2f ", ll_forward[b]);
+    }
+    printf("\n\n");
 #endif
     if (training) {
         // betas
@@ -162,13 +167,12 @@ GpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
                 workspace_manager_.labels, workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices,
                 workspace_manager_.S_max, blank_);
 #else
-        compute_betas_kernel<ProbT><<<minibatch_, maxS_ + 1, 0, stream_>>>(
-                acts, get_denom, betas, beta_sil, llBackward,
-                                                                           input_lengths, label_lengths, labels,
-                                                                           silence_indices, num_sil_indices, minibatch_,
-                                                                           start_indices, sil_start_indices,
-                                                                           act_start_indices, maxS_, alphabet_size_,
-                                                                           blank_, silence_);
+        compute_betas_kernel<ProbT><<<B, S_max + 1, 0, stream_>>>(
+                workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.betas,
+                workspace_manager_.ll_backward,
+                workspace_manager_.T, workspace_manager_.S, workspace_manager_.V, workspace_manager_.labels,
+                workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices, workspace_manager_.S_max,
+                blank_);
 #endif
 #ifdef DEBUG_TIME
         cudaStreamSynchronize(stream_);
@@ -177,24 +181,22 @@ GpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
         std::cout << "DEBUG: compute_betas_kernel " << elapsed.count() * 1000 << " ms\n";
 #endif
 #ifdef DEBUG_KERNEL
-        auto betas = workspace_manager_.betas_host();
+        auto betas = workspace_manager_.betas_host(stream_);
         for (int b = 0; b < B; b++) {
-            printf("gpu betas\n");
             printf("gpu betas (b = %d, T = %d, S = %d):\n", b, T[b], S[b]);
-            for (int t = 0; t <= T; t++) {
-                for (int s = 0; s <= std::min(t, S); s++) {
-                    printf("%.2f ", beta(betas, t, s, T[b], S[b]));
+            float* betas_b = betas.data() + var_start_offsets[b];
+            for (int s = S[b]; s >= 0; --s) {
+                for (int t = 0; t <= T[b]; ++t) {
+                    printf("%.2f ", beta(betas_b, t, s, T[b], S[b]));
                 }
                 printf("\n");
             }
             printf("\n");
         }
-        printf("forward/backward likelihoods\n");
-        auto ll_forward = workspace_manager_.ll_forward_host();
-        auto ll_backward = workspace_manager_.ll_backward_host();
-        for (int b = 0; b < B; b++) {
-            printf("b = %d: forward %.2f, backward %.2f\n", b, ll_forward[b],
-                   ll_backward[b]);
+        printf("backward likelihood\n");
+        auto ll_backward = workspace_manager_.ll_backward_host(stream_);
+        for (int b = 0; b < B; ++b) {
+            printf("%.2f ", ll_backward[b]);
         }
         printf("\n\n");
 #endif
@@ -216,19 +218,19 @@ GpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
         std::cout << "DEBUG: compute_grad_kernel " << elapsed.count() * 1000 << " ms\n";
 #endif
 #ifdef DEBUG_KERNEL
-        std::vector<ProbT> cpu_grads(workspace_manager_.num_denoms() * workspace_manager_.V_host());
-        cudaMemcpyFromSymbolAsync(cpu_grads.data(), grads, sizeof(ProbT) * cpu_grads.size(), 0, cudaMemcpyDeviceToHost,
-                                  stream_);
+        std::vector<ProbT> cpu_grads(workspace_manager_.num_denoms(stream_) * V);
+        cudaMemcpyAsync(cpu_grads.data(), grads, sizeof(ProbT) * cpu_grads.size(), cudaMemcpyDeviceToHost, stream_);
+        cudaStreamSynchronize(stream_);
 
         printf("gpu grads\n");
         int grad_idx = 0;
-        for (int b = 0; b < workspace_manager_.B_host(); b++) {
+        for (int b = 0; b < B; ++b) {
             printf("b = %d\n", b);
-            for (int t = 0; t < T[b]; t++) {
+            for (int t = 0; t < T[b]; ++t) {
                 printf("  t = %d\n", t);
-                for (int s = 0; s <= S[b]; s++) {
+                for (int s = 0; s <= S[b]; ++s) {
                     printf("    s = %d\n      ", s);
-                    for (int v = 0; v < V; v++) {
+                    for (int v = 0; v < V; ++v) {
                         printf("%.4f ", cpu_grads[grad_idx]);
                         grad_idx += 1;
                     }
@@ -242,9 +244,11 @@ GpuRNNTComputer<ProbT>::cost_and_grad(ProbT *costs, ProbT *grads) {
     }
 
     // cost
-    cudaMemcpyFromSymbolAsync(costs, workspace_manager_.ll_forward, sizeof(ProbT) * workspace_manager_.B_host(), 0,
-                              cudaMemcpyDeviceToHost, stream_);
+    cudaMemcpyAsync(costs, workspace_manager_.ll_forward, sizeof(ProbT) * B, cudaMemcpyDeviceToHost, stream_);
     cudaStreamSynchronize(stream_);
+    for (int b = 0; b < B; ++b) {
+        costs[b] = -costs[b];
+    }
     return RNNT_STATUS_SUCCESS;
 }
 

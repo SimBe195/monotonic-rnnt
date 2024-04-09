@@ -4,6 +4,7 @@
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include "status.h"
 
 template<typename dtype>
 class RNNTWorkspaceManager {
