@@ -5,11 +5,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
 
 include_directories(include)
 
-option(USE_NAIVE_KERNEL "use naive alpha-beta kernel" ON)
+option(USE_NAIVE_KERNEL "use naive alpha-beta kernel" OFF)
 option(DEBUG_TIME "output kernel time" OFF)
 option(DEBUG_KERNEL "output alpha beta" OFF)
-option(WITH_GPU "compile monotonic-rnnt with cuda." OFF)
+option(WITH_GPU "compile monotonic-rnnt with cuda." ON)
 option(WITH_OMP "compile monotonic-rnnt with openmp." ON)
+option(INCLUDE_TF_OP "compile tensorflow operation" ON)
 
 if (USE_NAIVE_KERNEL)
     add_definitions(-DUSE_NAIVE_KERNEL)
@@ -55,49 +56,63 @@ if (WITH_GPU)
         list(APPEND CMAKE_CUDA_ARCHITECTURES 89 90)
     endif ()
     message(STATUS "Compiling with compute capabilities ${CMAKE_CUDA_ARCHITECTURES}")
-    add_executable(test_time_gpu tests/test_time.cu tests/random.cpp src/status.cpp)
-    add_executable(test_gpu tests/test_gpu.cu tests/random.cpp src/status.cpp)
+
+    add_library(monotonic_rnnt SHARED src/rnnt_entrypoint.cu)
+
+    add_executable(test_time_gpu tests/test_time.cu tests/random.cu)
+
+    add_executable(test_gpu tests/test_gpu.cu tests/random.cu)
 else ()
     message(STATUS "Building CPU version")
-    add_executable(test_time tests/test_time.cpp tests/random.cpp src/status.cpp)
-    add_executable(test_cpu tests/test_cpu.cpp tests/random.cpp src/status.cpp)
+
+    add_library(monotonic_rnnt SHARED src/rnnt_entrypoint.cpp)
+
+    add_executable(test_time_cpu tests/test_time.cpp tests/random.cpp)
+
+    add_executable(test_cpu tests/test_cpu.cpp tests/random.cpp)
 endif ()
 
-find_package(Python3 COMPONENTS Interpreter)
-execute_process(
-        COMMAND "${Python3_EXECUTABLE}" -c "import tensorflow as tf; print(tf.sysconfig.get_include())"
-        RESULT_VARIABLE _tensorflow_include_res
-        OUTPUT_VARIABLE Tensorflow_INCLUDE_DIR
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-execute_process(
-        COMMAND "${Python3_EXECUTABLE}" -c "import tensorflow as tf; print(tf.sysconfig.get_lib())"
-        RESULT_VARIABLE _tensorflow_lib_res
-        OUTPUT_VARIABLE Tensorflow_LIB_DIR
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-)
+if (INCLUDE_TF_OP)
+    find_package(Python3 COMPONENTS Interpreter)
+    execute_process(
+            COMMAND "${Python3_EXECUTABLE}" -c "import tensorflow as tf; print(tf.sysconfig.get_include())"
+            RESULT_VARIABLE _tensorflow_include_res
+            OUTPUT_VARIABLE Tensorflow_INCLUDE_DIR
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+    execute_process(
+            COMMAND "${Python3_EXECUTABLE}" -c "import tensorflow as tf; print(tf.sysconfig.get_lib())"
+            RESULT_VARIABLE _tensorflow_lib_res
+            OUTPUT_VARIABLE Tensorflow_LIB_DIR
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
 
-find_library(
-        Tensorflow_FRAMEWORK
-        NAMES tensorflow_framework
-        HINTS ${Tensorflow_LIB_DIR} /usr/local/lib/tensorflow
-        PATH_SUFFIXES lib REQUIRED)
+    # set(Tensorflow_FRAMEWORK ${Tensorflow_LIB_DIR}/libtensorflow.so.2)
 
-add_library(tf_operation SHARED tensorflow_binding/monotonic_rnnt_op.cc src/status.cpp
-        src/cpu_rnnt.cpp)
-target_include_directories(tf_operation PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
-target_include_directories(tf_operation PUBLIC ${Tensorflow_INCLUDE_DIR})
-target_link_libraries(tf_operation PUBLIC ${Tensorflow_FRAMEWORK})
-add_custom_target(
-        tf_test
-        COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=$<TARGET_FILE_DIR:tf_operation>:$ENV{PYTHONPATH} ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tensorflow_binding/test.py
-        DEPENDS tf_operation
-        COMMENT "Running python test for tensorflow operation"
-)
+    list(APPEND CMAKE_FIND_LIBRARY_SUFFIXES .so.2)
+    find_library(
+            Tensorflow_FRAMEWORK
+            NAMES tensorflow_framework tensorflow_framework.so.2
+            HINTS ${Tensorflow_LIB_DIR}
+            PATH_SUFFIXES lib
+            REQUIRED
+    )
 
-#INSTALL(TARGETS monotonic_rnnt_lib
-#        RUNTIME DESTINATION "bin"
-#        LIBRARY DESTINATION "lib"
-#        ARCHIVE DESTINATION "lib")
-#
-#INSTALL(FILES include/rnnt_entrypoint.h DESTINATION "include")
+    add_library(monotonic_rnnt_tf_op SHARED tensorflow_binding/monotonic_rnnt_op.cu)
+    target_include_directories(monotonic_rnnt_tf_op PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
+    target_include_directories(monotonic_rnnt_tf_op PUBLIC ${Tensorflow_INCLUDE_DIR})
+    target_link_libraries(monotonic_rnnt_tf_op PUBLIC ${Tensorflow_FRAMEWORK})
+    add_custom_target(
+            tf_test
+            COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=$<TARGET_FILE_DIR:monotonic_rnnt_tf_op>:$ENV{PYTHONPATH} ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tensorflow_binding/test.py
+            DEPENDS monotonic_rnnt_tf_op
+            COMMENT "Running python test for tensorflow operation"
+    )
+endif()
+
+INSTALL(TARGETS monotonic_rnnt
+        RUNTIME DESTINATION "bin"
+        LIBRARY DESTINATION "lib"
+        ARCHIVE DESTINATION "lib")
+
+INSTALL(FILES include/rnnt_entrypoint.h include/cpu_workspace_manager.h include/gpu_workspace_manager.h DESTINATION "include")

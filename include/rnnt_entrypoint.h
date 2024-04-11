@@ -6,12 +6,15 @@
  * of the RNNT loss.
  */
 
+#include <cstddef>
+
+#include "cpu_workspace_manager.h"
 #include "options.h"
 #include "status.h"
 #include "workspace_manager.h"
-#include <cstddef>
 
 extern "C" {
+
 /**
  * \param [in]  workspace_manager Manager for handling memory access and structure.
  * \param [in]  options General options for the loss computation.
@@ -21,9 +24,9 @@ extern "C" {
  *
  *  \return Status information
  **/
-RNNTStatus compute_rnnt_loss(RNNTWorkspaceManager<float> &workspace_manager, RNNTOptions options, float *costs,
+RNNTStatus compute_rnnt_loss(RNNTWorkspaceManager &workspace_manager, RNNTOptions options, float *costs,
                              float *gradients);
 
-} //extern "C"
+}  // extern "C"
 
-#endif //MONOTONIC_RNNT_ENTRYPOINT_H
+#endif  // MONOTONIC_RNNT_ENTRYPOINT_H

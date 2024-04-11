@@ -1,7 +1,7 @@
 import tensorflow as tf
 from tensorflow.python.framework import ops
 
-_monotonic_rnnt = tf.load_op_library("../cmake-build-debug/libtf_operation.so")
+_monotonic_rnnt = tf.load_op_library("cmake-build-debug/libmonotonic_rnnt_tf_op.so")
 
 
 def rnnt_loss(

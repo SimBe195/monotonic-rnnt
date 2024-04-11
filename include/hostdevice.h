@@ -7,5 +7,4 @@
 #define HOSTDEVICE
 #endif
 
-#endif //MONOTONIC_RNNT_HOSTDEVICE_H
-
+#endif  // MONOTONIC_RNNT_HOSTDEVICE_H

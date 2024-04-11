@@ -7,6 +7,7 @@
 #include <iostream>
 
 #include "gpu_rnnt.h"
+#include "gpu_workspace_manager.h"
 
 #include "options.h"
 #include "test.h"
@@ -73,7 +74,7 @@ bool fwd_test() {
     cudaStreamSynchronize(stream);
 
     size_t gpu_alloc_bytes;
-    GPURNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
+    GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
     throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
                    "Error: get_workspace_size in fwd_test");
 
@@ -82,7 +83,7 @@ bool fwd_test() {
     workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
 
     float score_fwd;
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
 
     throw_on_error(rnnt_computer.cost(&score_fwd),
                    "Error: compute_rnnt_loss forward in fwd_test");
@@ -153,7 +154,7 @@ bool bwd_test() {
     cudaStreamSynchronize(stream);
 
     size_t gpu_alloc_bytes;
-    GPURNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
+    GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
     throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
                    "Error: get_workspace_size in bwd_test");
 
@@ -162,7 +163,7 @@ bool bwd_test() {
     workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
 
     float score_fwd;
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
     throw_on_error(rnnt_computer.cost(&score_fwd),
                    "Error: compute_rnnt_loss forward in bwd_test");
 
@@ -240,7 +241,7 @@ bool grads_test() {
     cudaStreamSynchronize(stream);
 
     size_t gpu_alloc_bytes;
-    GPURNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
+    GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
     throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
                    "Error: get_workspace_size in grads_test");
 
@@ -251,7 +252,7 @@ bool grads_test() {
     float *grads;
     cudaMalloc(&grads, sizeof(float) * logits.size());
     float score;
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
     throw_on_error(rnnt_computer.cost_and_grad(&score, grads),
                    "Error: compute_rnnt_loss forward+backward in grads_test");
 
@@ -360,7 +361,7 @@ bool multibatch_test() {
     cudaStreamSynchronize(stream);
 
     size_t gpu_alloc_bytes;
-    GPURNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
+    GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
     throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
                    "Error: get_workspace_size in multibatch_test");
 
@@ -368,7 +369,7 @@ bool multibatch_test() {
     cudaMalloc(&rnnt_gpu_workspace, gpu_alloc_bytes);
     workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
 
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
     std::vector<float> scores_fwd(B);
     throw_on_error(rnnt_computer.cost(scores_fwd.data()),
                    "Error: compute_rnnt_loss forward in multibatch_test");
@@ -467,7 +468,7 @@ bool infnan_test() {
     cudaStreamSynchronize(stream);
 
     size_t gpu_alloc_bytes;
-    GPURNNTWorkspaceManager<float> workspace_manager(acts_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
+    GpuRNNTWorkspaceManager<float> workspace_manager(acts_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
     throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
                    "Error: get_workspace_size in infnan_test");
 
@@ -475,7 +476,7 @@ bool infnan_test() {
     cudaMalloc(&rnnt_gpu_workspace, gpu_alloc_bytes);
     workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
 
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
 
     float cost;
     float *grads;

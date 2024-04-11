@@ -1,2 +1,6 @@
 cmake-build-*
 .idea
+.cache
+compile_commands.json
+__pycache__/
+*.pyc

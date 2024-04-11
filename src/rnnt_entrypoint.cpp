@@ -1,28 +1,30 @@
-#include <iostream>
-
+#include "status.h"
 #include "rnnt_entrypoint.h"
-#include "cpu_rnnt.h"
 
 #ifdef RNNT_ENABLE_GPU
 
+#include "gpu_workspace_manager.h"
 #include "gpu_rnnt.h"
 
 #endif
 
+#include "cpu_workspace_manager.h"
+#include "cpu_rnnt.h"
+
 extern "C" {
 
-RNNTStatus compute_rnnt_loss(RNNTWorkspaceManager<float> &workspace_manager,
+RNNTStatus compute_rnnt_loss(RNNTWorkspaceManager &workspace_manager,
                              RNNTOptions options,
                              float *costs,
                              float *gradients) {
 
-    if (workspace_manager.get_workspace() == nullptr || costs == nullptr) {
+    if (costs == nullptr) {
         return RNNT_STATUS_INVALID_VALUE;
     }
 
     if (options.loc == RNNT_CPU) {
-        CpuRNNTComputer<float> rnnt_computer(workspace_manager,
-                                             options.blank_label, options.num_threads);
+        auto &cpu_workspace_manager = dynamic_cast<CpuRNNTWorkspaceManager<float> &>(workspace_manager);
+        CpuRNNTComputer<float> rnnt_computer(cpu_workspace_manager, options.blank_label, options.num_threads);
 
         if (gradients != nullptr) {
             return rnnt_computer.cost_and_grad(costs, gradients);
@@ -32,11 +34,11 @@ RNNTStatus compute_rnnt_loss(RNNTWorkspaceManager<float> &workspace_manager,
 
     } else if (options.loc == RNNT_GPU) {
 #ifdef RNNT_ENABLE_GPU
-        GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads,
-                                             options.stream);
+        auto &gpu_workspace_manager = dynamic_cast<GpuRNNTWorkspaceManager<float> &>(workspace_manager);
+        GpuRNNTComputer<float> rnnt_computer(gpu_workspace_manager, options.blank_label, options.stream);
 
         if (gradients != nullptr)
-            return rnnt_computer.cost_and_grad(costs, gradients,);
+            return rnnt_computer.cost_and_grad(costs, gradients);
         else
             return rnnt_computer.cost(costs);
 #else
