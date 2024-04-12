@@ -1,9 +1,6 @@
-#include <rnnt_entrypoint.h>
-
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
-#include <random>
 #include <vector>
 
 #include "cpu_rnnt.h"
@@ -38,7 +35,7 @@ bool run_test(int B, int T, int S, int V, int num_threads) {
         throw_on_error(rnnt_computer.cost_and_grad(costs.data(), grads.data()), "Error: compute_rnnt_loss in run_test");
         auto end = std::chrono::high_resolution_clock::now();
 
-        std::chrono::duration<double> elapsed = end - start;
+        std::chrono::duration<float> elapsed = end - start;
         time.push_back(elapsed.count() * 1000);
         printf("compute_rnnt_loss elapsed time: %.2f ms\n", elapsed.count() * 1000);
     }
@@ -46,16 +43,16 @@ bool run_test(int B, int T, int S, int V, int num_threads) {
     workspace_manager.free_workspace();
 
     float sum = 0;
-    for (int i = 0; i < time.size(); ++i) {
-        sum += time[i];
+    for (float i : time) {
+        sum += i;
     }
-    sum /= time.size();
+    sum /= static_cast<float>(time.size());
 
     float variance = 0;
-    for (int i = 0; i < time.size(); ++i) {
-        variance += (time[i] - sum) * (time[i] - sum);
+    for (float i : time) {
+        variance += (i - sum) * (i - sum);
     }
-    variance /= time.size();
+    variance /= static_cast<float>(time.size());
 
     printf("Average time over %zu computations: %.2f ms, variance: %.2f\n", time.size(), sum, variance);
 
