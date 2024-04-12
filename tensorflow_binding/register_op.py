@@ -1,15 +1,18 @@
+import os
+
 import tensorflow as tf
 from tensorflow.python.framework import ops
 
-_monotonic_rnnt = tf.load_op_library("cmake-build-debug/libmonotonic_rnnt_tf_op.so")
+dir_path = os.path.dirname(os.path.realpath(__file__))
+_monotonic_rnnt = tf.load_op_library(f"{dir_path}/libmonotonic_rnnt_tf_op.so")
 
 
 def rnnt_loss(
-        acts: tf.Tensor,
-        labels: tf.Tensor,
-        input_lengths: tf.Tensor,
-        label_lengths: tf.Tensor,
-        blank_label: int = 0,
+    acts: tf.Tensor,
+    labels: tf.Tensor,
+    input_lengths: tf.Tensor,
+    label_lengths: tf.Tensor,
+    blank_label: int = 0,
 ) -> tf.Tensor:
     """Computes the RNNT loss between a sequence of activations and a
     ground truth labeling.
@@ -80,11 +83,3 @@ def _RNNTLossGrad(op, grad_loss, _):
     # [T_1*(S_1+1) + T_2*(S_2+1) + ... + T_B*(S_B+1), 1]
     grad_loss = tf.math.multiply(grad_loss, grad)
     return [grad_loss, None, None, None]
-
-
-if hasattr(ops, "RegisterShape"):
-    @ops.RegisterShape("MonotonicRNNT")
-    def _RNNTLossShape(op):
-        inputs_shape = op.inputs[0].get_shape().with_rank(2)
-        batch_size = op.inputs[1].get_shape().with_rank(2)[0]
-        return [batch_size, inputs_shape]

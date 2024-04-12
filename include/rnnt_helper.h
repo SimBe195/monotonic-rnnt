@@ -1,9 +1,7 @@
 #ifndef MONOTONIC_RNNT_HELPER_H
 #define MONOTONIC_RNNT_HELPER_H
 
-#include <algorithm>
 #include <cmath>
-#include <limits>
 
 #include "hostdevice.h"
 

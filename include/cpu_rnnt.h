@@ -1,13 +1,17 @@
 #ifndef MONOTONIC_RNNT_CPU_RNNT_H
 #define MONOTONIC_RNNT_CPU_RNNT_H
 
-#include <algorithm>
+#if defined(DEBUG_TIME) or defined(DEBUG_KERNEL)
+#include <stdio.h>
+#endif
+
+#ifdef DEBUG_TIME
 #include <chrono>
+#endif
+
+#include <algorithm>
 #include <cmath>
-#include <cstring>
 #include <limits>
-#include <numeric>
-#include <tuple>
 
 #ifndef RNNT_DISABLE_OMP
 
@@ -45,7 +49,7 @@ class CpuRNNTComputer {
 #ifdef DEBUG_TIME
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = end - start;
-        std::cout << "DEBUG: log_softmax denom " << elapsed.count() * 1000 << " ms\n";
+        printf("DEBUG: log_softmax_denom %.2f ms\n", elapsed.count() * 1000);
         start = std::chrono::high_resolution_clock::now();
 #endif
 
@@ -57,7 +61,7 @@ class CpuRNNTComputer {
 #ifdef DEBUG_TIME
         end = std::chrono::high_resolution_clock::now();
         elapsed = end - start;
-        std::cout << "DEBUG: alphas, betas and grads " << elapsed.count() * 1000 << " ms\n";
+        printf("DEBUG: alphas, betas and grads %.2f ms\n", elapsed.count() * 1000);
 #endif
 
         return RNNT_STATUS_SUCCESS;
@@ -71,7 +75,7 @@ class CpuRNNTComputer {
 #ifdef DEBUG_TIME
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = end - start;
-        std::cout << "DEBUG: log_softmax denom" << elapsed.count() * 1000 << " ms\n";
+        printf("DEBUG: log_softmax_denom %.2f ms\n", elapsed.count() * 1000);
         start = std::chrono::high_resolution_clock::now();
 #endif
 
@@ -83,7 +87,7 @@ class CpuRNNTComputer {
 #ifdef DEBUG_TIME
         end = std::chrono::high_resolution_clock::now();
         elapsed = end - start;
-        std::cout << "DEBUG: alphas " << elapsed.count() * 1000 << " ms\n";
+        printf("DEBUG: alphas %.2f ms\n", elapsed.count() * 1000);
 #endif
 
         return RNNT_STATUS_SUCCESS;

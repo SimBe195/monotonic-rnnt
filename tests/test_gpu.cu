@@ -1,18 +1,13 @@
-#include <cmath>
-#include <random>
-#include <tuple>
-#include <vector>
 #include <algorithm>
-
+#include <cmath>
 #include <iostream>
+#include <vector>
 
 #include "gpu_rnnt.h"
 #include "gpu_workspace_manager.h"
-
-#include "options.h"
 #include "test.h"
 
-template<typename T>
+template <typename T>
 void vector_to_gpu(T *&gpu_space, std::vector<T> &vec, cudaStream_t &stream) {
     cudaMalloc(&gpu_space, vec.size() * sizeof(T));
     cudaMemcpyAsync(gpu_space, vec.data(), vec.size() * sizeof(T), cudaMemcpyHostToDevice, stream);
@@ -31,25 +26,25 @@ bool fwd_test() {
     std::vector<int> label_lengths = {S};
 
     std::vector<float> probs = {
-            // t = 0
-            0.6, 0.3, 0.1,  // s = 0
-            0.7, 0.1, 0.2,  // s = 1
-            0.5, 0.1, 0.4,  // s = 2
+        // t = 0
+        0.6, 0.3, 0.1,  // s = 0
+        0.7, 0.1, 0.2,  // s = 1
+        0.5, 0.1, 0.4,  // s = 2
 
-            // t = 1
-            0.5, 0.4, 0.1,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
-            0.8, 0.1, 0.1,  // s = 2
+        // t = 1
+        0.5, 0.4, 0.1,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
+        0.8, 0.1, 0.1,  // s = 2
 
-            // t = 2
-            0.4, 0.3, 0.3,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
-            0.7, 0.2, 0.1,  // s = 2
+        // t = 2
+        0.4, 0.3, 0.3,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
+        0.7, 0.2, 0.1,  // s = 2
 
-            // t = 3
-            0.8, 0.1, 0.1,  // s = 0
-            0.3, 0.1, 0.6,  // s = 1
-            0.8, 0.1, 0.1   // s = 2
+        // t = 3
+        0.8, 0.1, 0.1,  // s = 0
+        0.3, 0.1, 0.6,  // s = 1
+        0.8, 0.1, 0.1   // s = 2
     };
 
     std::vector<float> logits(probs.size());
@@ -57,11 +52,6 @@ bool fwd_test() {
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
-
-    RNNTOptions options{};
-    options.blank_label = 0;
-    options.stream = stream;
-    options.num_threads = 1;
 
     float *logits_gpu;
     vector_to_gpu(logits_gpu, logits, stream);
@@ -73,22 +63,16 @@ bool fwd_test() {
     vector_to_gpu(label_lengths_gpu, label_lengths, stream);
     cudaStreamSynchronize(stream);
 
-    size_t gpu_alloc_bytes;
     GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
-                   "Error: get_workspace_size in fwd_test");
-
-    void *rnnt_gpu_workspace;
-    cudaMalloc(&rnnt_gpu_workspace, gpu_alloc_bytes);
-    workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
+    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in fwd_test");
 
     float score_fwd;
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
 
-    throw_on_error(rnnt_computer.cost(&score_fwd),
-                   "Error: compute_rnnt_loss forward in fwd_test");
+    throw_on_error(rnnt_computer.cost(&score_fwd), "Error: compute_rnnt_loss forward in fwd_test");
 
-    cudaFree(rnnt_gpu_workspace);
+    workspace_manager.free_workspace();
+
     cudaFree(logits_gpu);
     cudaFree(labels_gpu);
     cudaFree(lengths_gpu);
@@ -112,25 +96,25 @@ bool bwd_test() {
     std::vector<int> label_lengths = {S};
 
     std::vector<float> probs = {
-            // t = 0
-            0.6, 0.3, 0.1,  // s = 0
-            0.7, 0.1, 0.2,  // s = 1
-            0.5, 0.1, 0.4,  // s = 2
+        // t = 0
+        0.6, 0.3, 0.1,  // s = 0
+        0.7, 0.1, 0.2,  // s = 1
+        0.5, 0.1, 0.4,  // s = 2
 
-            // t = 1
-            0.5, 0.4, 0.1,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
-            0.8, 0.1, 0.1,  // s = 2
+        // t = 1
+        0.5, 0.4, 0.1,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
+        0.8, 0.1, 0.1,  // s = 2
 
-            // t = 2
-            0.4, 0.3, 0.3,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
-            0.7, 0.2, 0.1,  // s = 2
+        // t = 2
+        0.4, 0.3, 0.3,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
+        0.7, 0.2, 0.1,  // s = 2
 
-            // t = 3
-            0.8, 0.1, 0.1,  // s = 0
-            0.3, 0.1, 0.6,  // s = 1
-            0.8, 0.1, 0.1   // s = 2
+        // t = 3
+        0.8, 0.1, 0.1,  // s = 0
+        0.3, 0.1, 0.6,  // s = 1
+        0.8, 0.1, 0.1   // s = 2
     };
 
     std::vector<float> logits(probs.size());
@@ -138,10 +122,6 @@ bool bwd_test() {
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
-
-    RNNTOptions options{};
-    options.blank_label = 0;
-    options.num_threads = 1;
 
     float *logits_gpu;
     vector_to_gpu(logits_gpu, logits, stream);
@@ -153,19 +133,12 @@ bool bwd_test() {
     vector_to_gpu(label_lengths_gpu, label_lengths, stream);
     cudaStreamSynchronize(stream);
 
-    size_t gpu_alloc_bytes;
     GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
-                   "Error: get_workspace_size in bwd_test");
-
-    void *rnnt_gpu_workspace;
-    cudaMalloc(&rnnt_gpu_workspace, gpu_alloc_bytes);
-    workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
+    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in bwd_test");
 
     float score_fwd;
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
-    throw_on_error(rnnt_computer.cost(&score_fwd),
-                   "Error: compute_rnnt_loss forward in bwd_test");
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
+    throw_on_error(rnnt_computer.cost(&score_fwd), "Error: compute_rnnt_loss forward in bwd_test");
 
     float *grads;
     cudaMalloc(&grads, sizeof(float) * logits.size());
@@ -174,7 +147,7 @@ bool bwd_test() {
     throw_on_error(rnnt_computer.cost_and_grad(&score_bwd, grads),
                    "Error: compute_rnnt_loss forward+backward in bwd_test");
 
-    cudaFree(rnnt_gpu_workspace);
+    workspace_manager.free_workspace();
     cudaFree(grads);
     cudaFree(logits_gpu);
     cudaFree(labels_gpu);
@@ -199,25 +172,25 @@ bool grads_test() {
     std::vector<int> label_lengths = {S};
 
     std::vector<float> probs = {
-            // t = 0
-            0.6, 0.3, 0.1,  // s = 0
-            0.7, 0.1, 0.2,  // s = 1
-            0.5, 0.1, 0.4,  // s = 2
+        // t = 0
+        0.6, 0.3, 0.1,  // s = 0
+        0.7, 0.1, 0.2,  // s = 1
+        0.5, 0.1, 0.4,  // s = 2
 
-            // t = 1
-            0.5, 0.4, 0.1,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
-            0.8, 0.1, 0.1,  // s = 2
+        // t = 1
+        0.5, 0.4, 0.1,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
+        0.8, 0.1, 0.1,  // s = 2
 
-            // t = 2
-            0.4, 0.3, 0.3,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
-            0.7, 0.2, 0.1,  // s = 2
+        // t = 2
+        0.4, 0.3, 0.3,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
+        0.7, 0.2, 0.1,  // s = 2
 
-            // t = 3
-            0.8, 0.1, 0.1,  // s = 0
-            0.3, 0.1, 0.6,  // s = 1
-            0.8, 0.1, 0.1   // s = 2
+        // t = 3
+        0.8, 0.1, 0.1,  // s = 0
+        0.3, 0.1, 0.6,  // s = 1
+        0.8, 0.1, 0.1   // s = 2
     };
 
     std::vector<float> logits(probs.size());
@@ -225,10 +198,6 @@ bool grads_test() {
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
-
-    RNNTOptions options{};
-    options.blank_label = 0;
-    options.num_threads = 1;
 
     float *logits_gpu;
     vector_to_gpu(logits_gpu, logits, stream);
@@ -240,42 +209,36 @@ bool grads_test() {
     vector_to_gpu(label_lengths_gpu, label_lengths, stream);
     cudaStreamSynchronize(stream);
 
-    size_t gpu_alloc_bytes;
     GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
-                   "Error: get_workspace_size in grads_test");
-
-    void *rnnt_gpu_workspace;
-    cudaMalloc(&rnnt_gpu_workspace, gpu_alloc_bytes);
-    workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
+    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in grads_test");
 
     float *grads;
     cudaMalloc(&grads, sizeof(float) * logits.size());
     float score;
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
     throw_on_error(rnnt_computer.cost_and_grad(&score, grads),
                    "Error: compute_rnnt_loss forward+backward in grads_test");
 
     std::vector<float> expected_grads = {
-            // t = 0
-            0.04, -0.14, 0.1,  // s = 0
-            0.0, 0.0, 0.0,  // s = 1
-            0.0, 0.0, 0.0,  // s = 2
+        // t = 0
+        0.04, -0.14, 0.1,  // s = 0
+        0.0, 0.0, 0.0,     // s = 1
+        0.0, 0.0, 0.0,     // s = 2
 
-            // t = 1
-            0.13, -0.19, 0.06,  // s = 0
-            -0.04, 0.04, -0.01,  // s = 1
-            0.0, 0.0, 0.0,  // s = 2
+        // t = 1
+        0.13, -0.19, 0.06,   // s = 0
+        -0.04, 0.04, -0.01,  // s = 1
+        0.0, 0.0, 0.0,       // s = 2
 
-            // t = 2
-            0.06, -0.1, 0.04,  // s = 0
-            0.01, 0.07, -0.08,  // s = 1
-            -0.06, 0.04, 0.02,  // s = 2
+        // t = 2
+        0.06, -0.1, 0.04,   // s = 0
+        0.01, 0.07, -0.08,  // s = 1
+        -0.06, 0.04, 0.02,  // s = 2
 
-            // t = 3
-            0.0, 0.0, 0.0,  // s = 0
-            0.14, 0.05, -0.19,  // s = 1
-            -0.11, 0.05, 0.05   // s = 2
+        // t = 3
+        0.0, 0.0, 0.0,      // s = 0
+        0.14, 0.05, -0.19,  // s = 1
+        -0.11, 0.05, 0.05   // s = 2
     };
 
     std::vector<float> grads_host(expected_grads.size());
@@ -287,7 +250,7 @@ bool grads_test() {
         grads_close &= std::abs(expected_grads[idx] - grads_host[idx]) < 1e-02;
     }
 
-    cudaFree(rnnt_gpu_workspace);
+    workspace_manager.free_workspace();
     cudaFree(grads);
     cudaFree(logits_gpu);
     cudaFree(labels_gpu);
@@ -309,43 +272,39 @@ bool multibatch_test() {
     std::vector<int> label_lengths = {1, 2};
 
     std::vector<float> probs = {
-            // b = 0
-            // t = 0
-            0.6, 0.3, 0.1,  // s = 0
-            0.7, 0.1, 0.2,  // s = 1
+        // b = 0
+        // t = 0
+        0.6, 0.3, 0.1,  // s = 0
+        0.7, 0.1, 0.2,  // s = 1
 
-            // t = 1
-            0.5, 0.4, 0.1,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
+        // t = 1
+        0.5, 0.4, 0.1,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
 
-            // b = 1
-            // t = 0
-            0.6, 0.3, 0.1,  // s = 0
-            0.7, 0.1, 0.2,  // s = 1
-            0.5, 0.1, 0.4,  // s = 2
+        // b = 1
+        // t = 0
+        0.6, 0.3, 0.1,  // s = 0
+        0.7, 0.1, 0.2,  // s = 1
+        0.5, 0.1, 0.4,  // s = 2
 
-            // t = 1
-            0.5, 0.4, 0.1,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
-            0.8, 0.1, 0.1,  // s = 2
+        // t = 1
+        0.5, 0.4, 0.1,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
+        0.8, 0.1, 0.1,  // s = 2
 
-            // t = 2
-            0.4, 0.3, 0.3,  // s = 0
-            0.5, 0.1, 0.4,  // s = 1
-            0.7, 0.2, 0.1,  // s = 2
+        // t = 2
+        0.4, 0.3, 0.3,  // s = 0
+        0.5, 0.1, 0.4,  // s = 1
+        0.7, 0.2, 0.1,  // s = 2
 
-            // t = 3
-            0.8, 0.1, 0.1,  // s = 0
-            0.3, 0.1, 0.6,  // s = 1
-            0.8, 0.1, 0.1   // s = 2
+        // t = 3
+        0.8, 0.1, 0.1,  // s = 0
+        0.3, 0.1, 0.6,  // s = 1
+        0.8, 0.1, 0.1   // s = 2
     };
 
     std::vector<float> logits(probs.size());
     std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
-
-    RNNTOptions options{};
-    options.blank_label = 0;
-    options.num_threads = 1;
 
     cudaStream_t stream;
     cudaStreamCreate(&stream);
@@ -360,19 +319,12 @@ bool multibatch_test() {
     vector_to_gpu(label_lengths_gpu, label_lengths, stream);
     cudaStreamSynchronize(stream);
 
-    size_t gpu_alloc_bytes;
     GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
-                   "Error: get_workspace_size in multibatch_test");
+    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in multibatch_test");
 
-    void *rnnt_gpu_workspace;
-    cudaMalloc(&rnnt_gpu_workspace, gpu_alloc_bytes);
-    workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
-
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
     std::vector<float> scores_fwd(B);
-    throw_on_error(rnnt_computer.cost(scores_fwd.data()),
-                   "Error: compute_rnnt_loss forward in multibatch_test");
+    throw_on_error(rnnt_computer.cost(scores_fwd.data()), "Error: compute_rnnt_loss forward in multibatch_test");
 
     float *grads;
     cudaMalloc(&grads, sizeof(float) * logits.size());
@@ -381,35 +333,35 @@ bool multibatch_test() {
                    "Error: compute_rnnt_loss forward+backward in multibatch_test");
 
     std::vector<float> expected_grads = {
-            // b = 0
-            // t = 0
-            -0.02, -0.08, 0.1,  // s = 0
-            0.0, 0.0, 0.0,  // s = 1
+        // b = 0
+        // t = 0
+        -0.02, -0.08, 0.1,  // s = 0
+        0.0, 0.0, 0.0,      // s = 1
 
-            // t = 1
-            0.31, -0.37, 0.06,  // s = 0
-            -0.19, 0.04, 0.15,  // s = 1
+        // t = 1
+        0.31, -0.37, 0.06,  // s = 0
+        -0.19, 0.04, 0.15,  // s = 1
 
-            // b = 1
-            // t = 0
-            0.04, -0.14, 0.1,  // s = 0
-            0.0, 0.0, 0.0,  // s = 1
-            0.0, 0.0, 0.0,  // s = 2
+        // b = 1
+        // t = 0
+        0.04, -0.14, 0.1,  // s = 0
+        0.0, 0.0, 0.0,     // s = 1
+        0.0, 0.0, 0.0,     // s = 2
 
-            // t = 1
-            0.13, -0.19, 0.06,  // s = 0
-            -0.04, 0.04, -0.01,  // s = 1
-            0.0, 0.0, 0.0,  // s = 2
+        // t = 1
+        0.13, -0.19, 0.06,   // s = 0
+        -0.04, 0.04, -0.01,  // s = 1
+        0.0, 0.0, 0.0,       // s = 2
 
-            // t = 2
-            0.06, -0.1, 0.04,  // s = 0
-            0.01, 0.07, -0.08,  // s = 1
-            -0.06, 0.04, 0.02,  // s = 2
+        // t = 2
+        0.06, -0.1, 0.04,   // s = 0
+        0.01, 0.07, -0.08,  // s = 1
+        -0.06, 0.04, 0.02,  // s = 2
 
-            // t = 3
-            0.0, 0.0, 0.0,  // s = 0
-            0.14, 0.05, -0.19,  // s = 1
-            -0.11, 0.05, 0.05   // s = 2
+        // t = 3
+        0.0, 0.0, 0.0,      // s = 0
+        0.14, 0.05, -0.19,  // s = 1
+        -0.11, 0.05, 0.05   // s = 2
     };
 
     std::vector<float> grads_host(expected_grads.size());
@@ -421,7 +373,7 @@ bool multibatch_test() {
         grads_close &= std::abs(expected_grads[idx] - grads_host[idx]) < 1e-02;
     }
 
-    cudaFree(rnnt_gpu_workspace);
+    workspace_manager.free_workspace();
     cudaFree(grads);
     cudaFree(logits_gpu);
     cudaFree(labels_gpu);
@@ -430,11 +382,10 @@ bool multibatch_test() {
 
     cudaStreamDestroy(stream);
 
-    return rnnt_helper::is_close(scores_fwd[0], static_cast<float>(-log(0.39)))
-           && rnnt_helper::is_close(scores_fwd[1], static_cast<float>(-log(0.363)))
-           && rnnt_helper::is_close(scores_fwd[0], scores_bwd[0])
-           && rnnt_helper::is_close(scores_fwd[1], scores_bwd[1])
-           && grads_close;
+    return rnnt_helper::is_close(scores_fwd[0], static_cast<float>(-log(0.39))) &&
+           rnnt_helper::is_close(scores_fwd[1], static_cast<float>(-log(0.363))) &&
+           rnnt_helper::is_close(scores_fwd[0], scores_bwd[0]) && rnnt_helper::is_close(scores_fwd[1], scores_bwd[1]) &&
+           grads_close;
 }
 
 bool infnan_test() {
@@ -451,9 +402,6 @@ bool infnan_test() {
 
     std::vector<int> lengths = {T};
 
-    RNNTOptions options{};
-    options.num_threads = 1;
-
     cudaStream_t stream;
     cudaStreamCreate(&stream);
 
@@ -467,22 +415,15 @@ bool infnan_test() {
     vector_to_gpu(label_lengths_gpu, label_lengths, stream);
     cudaStreamSynchronize(stream);
 
-    size_t gpu_alloc_bytes;
     GpuRNNTWorkspaceManager<float> workspace_manager(acts_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.get_workspace_size(&gpu_alloc_bytes, options.stream),
-                   "Error: get_workspace_size in infnan_test");
+    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in infnan_test");
 
-    void *rnnt_gpu_workspace;
-    cudaMalloc(&rnnt_gpu_workspace, gpu_alloc_bytes);
-    workspace_manager.set_workspace(rnnt_gpu_workspace, options.stream);
-
-    GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
+    GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
 
     float cost;
     float *grads;
     cudaMalloc(&grads, sizeof(float) * acts.size());
-    throw_on_error(rnnt_computer.cost_and_grad(&cost, grads),
-                   "Error: compute_rnnt_loss forward in infnan_test");
+    throw_on_error(rnnt_computer.cost_and_grad(&cost, grads), "Error: compute_rnnt_loss forward in infnan_test");
 
     bool status = true;
     status &= !std::isinf(cost);
@@ -491,12 +432,12 @@ bool infnan_test() {
     std::vector<float> grads_host(acts.size());
     cudaMemcpy(grads_host.data(), grads, sizeof(float) * grads_host.size(), cudaMemcpyDeviceToHost);
 
-    for (auto grad: grads_host) {
+    for (auto grad : grads_host) {
         status &= !std::isinf(grad);
         status &= !std::isnan(grad);
     }
 
-    cudaFree(rnnt_gpu_workspace);
+    workspace_manager.free_workspace();
     cudaFree(grads);
     cudaFree(acts_gpu);
     cudaFree(labels_gpu);

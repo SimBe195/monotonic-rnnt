@@ -6,9 +6,6 @@
  * of the RNNT loss.
  */
 
-#include <cstddef>
-
-#include "cpu_workspace_manager.h"
 #include "options.h"
 #include "status.h"
 #include "workspace_manager.h"

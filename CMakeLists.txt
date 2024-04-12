@@ -7,6 +7,7 @@ include_directories(include)
 
 option(USE_NAIVE_KERNEL "use naive alpha-beta kernel" OFF)
 option(DEBUG_TIME "output kernel time" OFF)
+option(DEBUG_SPACE "output workspace size" OFF)
 option(DEBUG_KERNEL "output alpha beta" OFF)
 option(WITH_GPU "compile monotonic-rnnt with cuda." ON)
 option(WITH_OMP "compile monotonic-rnnt with openmp." ON)
@@ -17,6 +18,9 @@ if (USE_NAIVE_KERNEL)
 endif ()
 if (DEBUG_TIME)
     add_definitions(-DDEBUG_TIME)
+endif ()
+if (DEBUG_SPACE)
+    add_definitions(-DDEBUG_SPACE)
 endif ()
 if (DEBUG_KERNEL)
     add_definitions(-DDEBUG_KERNEL)
@@ -66,11 +70,11 @@ else ()
     message(STATUS "Building CPU version")
 
     add_library(monotonic_rnnt SHARED src/rnnt_entrypoint.cpp)
-
-    add_executable(test_time_cpu tests/test_time.cpp tests/random.cpp)
-
-    add_executable(test_cpu tests/test_cpu.cpp tests/random.cpp)
 endif ()
+
+add_executable(test_time_cpu tests/test_time.cpp tests/random.cpp)
+
+add_executable(test_cpu tests/test_cpu.cpp tests/random.cpp)
 
 if (INCLUDE_TF_OP)
     find_package(Python3 COMPONENTS Interpreter)
@@ -102,12 +106,6 @@ if (INCLUDE_TF_OP)
     target_include_directories(monotonic_rnnt_tf_op PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
     target_include_directories(monotonic_rnnt_tf_op PUBLIC ${Tensorflow_INCLUDE_DIR})
     target_link_libraries(monotonic_rnnt_tf_op PUBLIC ${Tensorflow_FRAMEWORK})
-    add_custom_target(
-            tf_test
-            COMMAND ${CMAKE_COMMAND} -E env PYTHONPATH=$<TARGET_FILE_DIR:monotonic_rnnt_tf_op>:$ENV{PYTHONPATH} ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tensorflow_binding/test.py
-            DEPENDS monotonic_rnnt_tf_op
-            COMMENT "Running python test for tensorflow operation"
-    )
 endif()
 
 INSTALL(TARGETS monotonic_rnnt

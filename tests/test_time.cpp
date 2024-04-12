@@ -1,98 +1,65 @@
-#include <cmath>
-#include <cstdlib>
-#include <random>
-#include <tuple>
-#include <vector>
-
-#include <chrono>
-
-#include <iostream>
-
 #include <rnnt_entrypoint.h>
 
+#include <chrono>
+#include <cstdlib>
+#include <iostream>
+#include <random>
+#include <vector>
+
+#include "cpu_rnnt.h"
+#include "cpu_workspace_manager.h"
 #include "test.h"
 
-bool run_test(int B, int T, int L, int A, int num_threads) {
-    std::mt19937 gen(2);
+bool run_test(int B, int T, int S, int V, int num_threads) {
+    int len = B * T * (S + 1) * V;
+    std::vector<float> acts(len);
+    genActs(acts);
 
-    auto start = std::chrono::high_resolution_clock::now();
-    int len = B * T * (L + 1) * A;
-    float * acts = genActs(len);
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    std::cout << "genActs elapsed time: " << elapsed.count() * 1000 << " ms\n";
-
-    std::vector<std::vector<int>> labels;
-    std::vector<int> sizes;
+    std::vector<int> lengths;
+    std::vector<int> label_lengths;
+    std::vector<int> labels = genLabels(V, S * T);
 
     for (int mb = 0; mb < B; ++mb) {
-        labels.push_back(genLabels(A, L));
-        sizes.push_back(T);
-    }
-
-    std::vector<int> flat_labels;
-    std::vector<int> label_lengths;
-    for (const auto& l : labels) {
-        flat_labels.insert(flat_labels.end(), l.begin(), l.end());
-        label_lengths.push_back(l.size());
+        lengths.push_back(T);
+        label_lengths.push_back(S);
     }
 
     std::vector<float> costs(B);
+    std::vector<float> grads(acts.size());
 
-    RNNTOptions options{};
-    options.maxT = T;
-    options.maxU = L + 1;
-    options.blank_label = 0;
-    options.batch_first = true;
-    options.loc = RNNT_CPU;
-    options.num_threads = num_threads;
+    CpuRNNTWorkspaceManager<float> workspace_manager(acts.data(), labels.data(), B, lengths.data(), labels.data(), V);
+    throw_on_error(workspace_manager.create_workspace(), "Error: get_workspace_size in run_test");
 
-    size_t cpu_alloc_bytes;
-    throw_on_error(get_workspace_size(T, L+1, B,
-                                     false,
-                                     &cpu_alloc_bytes),
-                    "Error: get_workspace_size in run_test");
+    CpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, num_threads);
 
     std::vector<float> time;
     for (int i = 0; i < 10; ++i) {
-        float * grads = new float[len];
-        void* rnnt_cpu_workspace = malloc(cpu_alloc_bytes);
+        auto start = std::chrono::high_resolution_clock::now();
+        throw_on_error(rnnt_computer.cost_and_grad(costs.data(), grads.data()), "Error: compute_rnnt_loss in run_test");
+        auto end = std::chrono::high_resolution_clock::now();
 
-        start = std::chrono::high_resolution_clock::now();
-        throw_on_error(compute_rnnt_loss(acts, grads,
-                                        flat_labels.data(), label_lengths.data(),
-                                        sizes.data(),
-                                        A, B,
-                                        costs.data(),
-                                        rnnt_cpu_workspace,
-                                        options),
-                        "Error: compute_rnnt_loss (0) in run_test");
-        end = std::chrono::high_resolution_clock::now();
-
-        free(grads);
-        free(rnnt_cpu_workspace);
-        elapsed = end - start;
+        std::chrono::duration<double> elapsed = end - start;
         time.push_back(elapsed.count() * 1000);
-        std::cout << "compute_rnnt_loss elapsed time: " << elapsed.count() * 1000 << " ms\n";
+        printf("compute_rnnt_loss elapsed time: %.2f ms\n", elapsed.count() * 1000);
     }
 
+    workspace_manager.free_workspace();
+
     float sum = 0;
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < time.size(); ++i) {
         sum += time[i];
     }
     sum /= time.size();
 
-    float std = 0;
-    for (int i = 0; i < 10; ++i) {
-        std += (time[i] - sum) * (time[i] - sum);
+    float variance = 0;
+    for (int i = 0; i < time.size(); ++i) {
+        variance += (time[i] - sum) * (time[i] - sum);
     }
-    std /= time.size();
+    variance /= time.size();
 
-    std::cout << "average 10 time cost: " << sum << " ms variance: " << std << std::endl;
+    printf("Average time over %zu computations: %.2f ms, variance: %.2f\n", time.size(), sum, variance);
 
-    float cost = std::accumulate(costs.begin(), costs.end(), 0.);
-
-    free(acts);
+    return true;
 }
 
 int main(int argc, char** argv) {
@@ -103,20 +70,15 @@ int main(int argc, char** argv) {
 
     int B = atoi(argv[1]);
     int T = atoi(argv[2]);
-    int L = atoi(argv[3]);
-    int A = atoi(argv[4]);
-    std::cout << "Arguments: " \
-                << "\nBatch size: " << B \
-                << "\nTime step: " << T \
-                << "\nLabel length: " << L \
-                << "\nAlphabet size: " << A \
-                << std::endl;
-    
+    int S = atoi(argv[3]);
+    int V = atoi(argv[4]);
+    printf("Arguments:\nBatch size: %d\nTime step: %d\nLabel length: %d\nAlphabet size: %d\n", B, T, S, V);
+
     int num_threads = 1;
     if (argc >= 6) {
         num_threads = atoi(argv[5]);
-        std::cout << "Num threads: " << num_threads << std::endl;
+        printf("Num threads: %d\n", num_threads);
     }
 
-    run_test(B, T, L, A, num_threads);
+    run_test(B, T, S, V, num_threads);
 }

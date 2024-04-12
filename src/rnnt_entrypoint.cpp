@@ -1,23 +1,20 @@
-#include "status.h"
 #include "rnnt_entrypoint.h"
+#include <iostream>
 
 #ifdef RNNT_ENABLE_GPU
 
-#include "gpu_workspace_manager.h"
 #include "gpu_rnnt.h"
+#include "gpu_workspace_manager.h"
 
 #endif
 
-#include "cpu_workspace_manager.h"
 #include "cpu_rnnt.h"
+#include "cpu_workspace_manager.h"
 
 extern "C" {
 
-RNNTStatus compute_rnnt_loss(RNNTWorkspaceManager &workspace_manager,
-                             RNNTOptions options,
-                             float *costs,
+RNNTStatus compute_rnnt_loss(RNNTWorkspaceManager &workspace_manager, RNNTOptions options, float *costs,
                              float *gradients) {
-
     if (costs == nullptr) {
         return RNNT_STATUS_INVALID_VALUE;
     }
@@ -49,5 +46,4 @@ RNNTStatus compute_rnnt_loss(RNNTWorkspaceManager &workspace_manager,
         return RNNT_STATUS_INVALID_VALUE;
     }
 }
-
 }

@@ -1,22 +1,17 @@
 #ifndef MONOTONIC_RNNT_GPU_RNNT_KERNEL_H
 #define MONOTONIC_RNNT_GPU_RNNT_KERNEL_H
 
-#include "gpu_workspace_manager.h"
+#include "rnnt_helper.h"
 
 HOSTDEVICE int alpha_idx(const int t, const int s, const int T, const int S) {
-    // see cpu workspace manager for more detailed explanation. This is broken
-    // down for efficiency.
-    int left_portion = t < S - 1 ? t : S - 1;
-    int mid_portion = t < S - 1 ? 0 : (t < T - S ? t + 1 - S : T + 1 - 2 * S);
-    int right_portion = t < T - S ? 0 : t - T + S;
+    // see cpu workspace manager for more details
+    // each row has length T + 1 - S except the bottom row which has one less element
+    int sum_below_row = s > 0 ? s * (T + 1 - S) - 1 : 0;
 
-    int left_sum = (left_portion + 1) * (left_portion + 2) / 2 - 1;
-    int mid_sum = mid_portion * (S + 1);
-    int right_sum = right_portion * (S + 1) - right_portion * (right_portion + 1) / 2;
+    // The bottom two rows both have no right shift
+    int right_shift = s > 0 ? s - 1 : 0;
 
-    int height_offset = t < T - S ? 0 : -right_portion - 1;
-
-    return left_sum + mid_sum + right_sum + height_offset + s;
+    return sum_below_row + t - right_shift;
 }
 
 inline HOSTDEVICE int beta_idx(const int t, const int s, const int T, const int S) {

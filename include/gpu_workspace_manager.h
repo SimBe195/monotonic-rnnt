@@ -1,12 +1,14 @@
 #ifndef MONOTONIC_RNNT_GPU_WORKSPACE_MANAGER_H
 #define MONOTONIC_RNNT_GPU_WORKSPACE_MANAGER_H
 
+#ifdef DEBUG_SPACE
+#include <stdio.h>
+#endif
+
 #include <algorithm>
-#include <cassert>
 #include <vector>
 
 #include "options.h"
-#include "reduce.h"
 #include "status.h"
 #include "workspace_manager.h"
 
@@ -49,6 +51,8 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
     GpuRNNTWorkspaceManager(const GpuRNNTWorkspaceManager &) = delete;
 
     ~GpuRNNTWorkspaceManager() override = default;
+
+    void *workspace_;  // device
 
     const int B_h;  // host
     const int V_h;  // host
@@ -217,9 +221,16 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
                       + 2 * B_h * dtype_size_                                // ll_forward + ll_backward
                       + 3 * sizeof(int);                                     // B, V, S_max
 
+#ifdef DEBUG_SPACE
+        printf("Reserve %.3f mb of memory for computations\n", static_cast<float>(*size_bytes) / 1e6);
+#endif
+
         return RNNT_STATUS_SUCCESS;
     }
+
     void set_workspace(void *workspace, CUstream stream) {
+        workspace_ = workspace;
+
         auto T_h = T_host(stream, false);
         auto S_h = S_host(stream, false);
         cudaStreamSynchronize(stream);
@@ -277,6 +288,19 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
 
         cudaStreamSynchronize(stream);
     }
+
+    RNNTStatus create_workspace(CUstream stream) {
+        size_t gpu_bytes;
+        auto status = get_workspace_size(&gpu_bytes, stream);
+        if (status == RNNT_STATUS_SUCCESS) {
+            void *workspace;
+            cudaMalloc(&workspace, gpu_bytes);
+            set_workspace(workspace, stream);
+        }
+        return status;
+    }
+
+    void free_workspace() { cudaFree(workspace_); }
 
    private:
     size_t dtype_size_;  // host

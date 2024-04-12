@@ -86,6 +86,9 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         }
 
         *size_bytes = calc_total_denom_space() + 2 * calc_total_fwdbwd_var_space_();
+#ifdef DEBUG_SPACE
+        printf("Reserve %.3f mb of memory for computations\n", static_cast<float>(*size_bytes) / 1e6);
+#endif
 
         return RNNT_STATUS_SUCCESS;
     }
@@ -256,6 +259,19 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         // . # # # # # .
         // # # # # # . .
         // # # # # . . .
+        // alphas are saved row-wise and packed
+        // The overall index is
+        // sum of rows below current label index + t - right shift of current row
+        // e.g. alphas[t = 1, s = 1] is at index 5 in the array or alphas[t = 2, s = 3]
+        // is at index 14 or alphas[t = 5, s = 2] is at index 13
+
+        // Shape in batch sample with T_[b] = 7, S_[b] = 5 is
+        // . . . . # # #
+        // . . . # # # .
+        // . . # # # . .
+        // . # # # . . .
+        // # # # . . . .
+        // # # . . . . .
         // alphas are saved column-wise and packed
         // The overall index is
         // sum of columns to the left of current timestep + s - a height offset
@@ -272,28 +288,13 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         assert(s <= t + 1);
         assert(T_[b] - 1 - t >= S_[b] - s);
 
-        int left_triangle_width = S_[b] - 1;
-        int mid_rectangle_width = T_[b] + 1 - 2 * S_[b];
+        // each row has length T + 1 - S except the bottom row which has one less element
+        int sum_below_row = s > 0 ? s * (T_[b] + 1 - S_[b]) - 1 : 0;
 
-        if (t < left_triangle_width) {
-            // t is in left triangle portion, i.e. 0 or 1 in the example
-            return (t + 1) * (t + 2) / 2 - 1 + s;
-        }
+        // The bottom two rows both have no right shift
+        int right_shift = s > 0 ? s - 1 : 0;
 
-        int offset = (left_triangle_width + 1) * (left_triangle_width + 2) / 2 - 1;
-
-        if (t < left_triangle_width + mid_rectangle_width) {
-            // t is in middle rectangle portion
-            return offset + (t - left_triangle_width) * (S_[b] + 1) + s;
-        }
-
-        offset += mid_rectangle_width * (S_[b] + 1);
-
-        int full_right_triangle_cols = t - mid_rectangle_width - left_triangle_width;
-        int full_right_triangle_cols_sum =
-            full_right_triangle_cols * (S_[b] + 1) - full_right_triangle_cols * (full_right_triangle_cols + 1) / 2;
-
-        return offset + full_right_triangle_cols_sum + (s - full_right_triangle_cols - 1);
+        return sum_below_row + t - right_shift;
     }
 
     [[nodiscard]] int beta_idx_(int b, int t, int s) const {

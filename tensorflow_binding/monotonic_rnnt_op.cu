@@ -5,7 +5,7 @@
 
 #else
 #include "cpu_rnnt.h"
-#include "workspace_manager.h"
+#include "cpu_workspace_manager.h"
 #endif
 
 #include "options.h"
@@ -93,17 +93,19 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
         options.blank_label = blank_label_;
 
         // set up workspace
+        size_t workspace_size_bytes;
+
 #ifdef RNNT_ENABLE_GPU
         GpuRNNTWorkspaceManager<float> workspace_manager(acts_t.data(), labels_t.data(), static_cast<int>(B),
                                                          input_lengths_t.data(), label_lengths_t.data(),
                                                          static_cast<int>(V));
-#else
-        RNNTWorkspaceManager<float> workspace_manager(acts_t.data(), labels_t.data(), static_cast<int>(B),
-                                                      input_lengths_t.data(), label_lengths_t.data(),
-                                                      static_cast<int>(V));
-#endif
-        size_t workspace_size_bytes;
         auto rnnt_status = workspace_manager.get_workspace_size(&workspace_size_bytes, options.stream);
+#else
+        CpuRNNTWorkspaceManager<float> workspace_manager(acts_t.data(), labels_t.data(), static_cast<int>(B),
+                                                         input_lengths_t.data(), label_lengths_t.data(),
+                                                         static_cast<int>(V));
+        auto rnnt_status = workspace_manager.get_workspace_size(&workspace_size_bytes);
+#endif
 
         OP_REQUIRES(
             ctx, rnnt_status == RNNT_STATUS_SUCCESS,
@@ -113,14 +115,16 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
         tf::Tensor workspace;
         OP_REQUIRES_OK(ctx, ctx->allocate_temp(tf::DT_UINT8, workspace_shape, &workspace));
         auto workspace_t = workspace.flat<uint8_t>();
-        workspace_manager.set_workspace(workspace_t.data(), options.stream);
 
         // compute RNNT
 #ifdef RNNT_ENABLE_GPU
+        workspace_manager.set_workspace(workspace_t.data(), options.stream);
+
         GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
         rnnt_status = rnnt_computer.cost_and_grad(costs_t.data(), grads_t.data());
 
 #else
+        workspace_manager.set_workspace(workspace_t.data());
 
         CpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads);
 
@@ -130,7 +134,7 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
 
         OP_REQUIRES(
             ctx, rnnt_status == RNNT_STATUS_SUCCESS,
-            tf::errors::Internal("monotonic_rnnt error in compute_rnnt_loss: ", rnntGetStatusString(rnnt_status)));
+            tf::errors::Internal("monotonic_rnnt error in rnnt_computer: ", rnntGetStatusString(rnnt_status)));
     }
 
    private:

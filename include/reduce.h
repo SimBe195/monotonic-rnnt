@@ -3,8 +3,8 @@
 
 #include "cuda.h"
 #include "cuda_runtime.h"
-#include "status.h"
 #include "rnnt_helper.h"
+#include "status.h"
 
 const int warp_size = 32;
 

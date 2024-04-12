@@ -3,15 +3,12 @@
 
 #include <stdexcept>
 #include <vector>
-#include <limits>
-#include <numeric>
 
 #include "status.h"
 
 inline void throw_on_error(RNNTStatus status, const char *message) {
     if (status != RNNT_STATUS_SUCCESS) {
-        throw std::runtime_error(message + (", status = " +
-                                            std::string(rnntGetStatusString(status))));
+        throw std::runtime_error(message + (", status = " + std::string(rnntGetStatusString(status))));
     }
 }
 
@@ -21,8 +18,7 @@ void genActs(std::vector<float> &arr);
 
 std::vector<int> genLabels(int alphabet_size, int L);
 
-float rel_diff(const std::vector<float> &grad,
-               const std::vector<float> &num_grad) {
+float rel_diff(const std::vector<float> &grad, const std::vector<float> &num_grad) {
     float diff = 0.;
     float tot = 0.;
     for (size_t idx = 0; idx < grad.size(); ++idx) {
@@ -33,4 +29,4 @@ float rel_diff(const std::vector<float> &grad,
     return diff / tot;
 }
 
-#endif //MONOTONIC_RNNT_TEST_H
+#endif  // MONOTONIC_RNNT_TEST_H

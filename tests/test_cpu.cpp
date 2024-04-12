@@ -51,7 +51,7 @@ bool fwd_test() {
 
     float score_fwd;
     CpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, 1);
-    throw_on_error(rnnt_computer.cost(&score_fwd), "Error: compute_rnnt_loss forward in fwd_test");
+    throw_on_error(rnnt_computer.cost(&score_fwd), "Error: rnnt_computer forward in fwd_test");
 
     workspace_manager.free_workspace();
 
@@ -101,12 +101,11 @@ bool bwd_test() {
 
     float score_fwd;
     CpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, 1);
-    throw_on_error(rnnt_computer.cost(&score_fwd), "Error: compute_rnnt_loss forward in bwd_test");
+    throw_on_error(rnnt_computer.cost(&score_fwd), "Error: rnnt_computer forward in bwd_test");
 
     std::vector<float> grads(logits.size());
     float score_bwd;
-    throw_on_error(rnnt_computer.cost_and_grad(&score_bwd, grads.data()),
-                   "Error: compute_rnnt_loss forward in bwd_test");
+    throw_on_error(rnnt_computer.cost_and_grad(&score_bwd, grads.data()), "Error: rnnt_computer forward in bwd_test");
 
     workspace_manager.free_workspace();
 
@@ -158,7 +157,7 @@ bool grads_test() {
     float score;
     CpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, 1);
     throw_on_error(rnnt_computer.cost_and_grad(&score, grads.data()),
-                   "Error: compute_rnnt_loss forward+backward in grads_test");
+                   "Error: rnnt_computer forward+backward in grads_test");
 
     workspace_manager.free_workspace();
 
@@ -243,12 +242,12 @@ bool multibatch_test() {
 
     std::vector<float> scores_fwd(B);
     CpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, 1);
-    throw_on_error(rnnt_computer.cost(scores_fwd.data()), "Error: compute_rnnt_loss forward in multibatch_test");
+    throw_on_error(rnnt_computer.cost(scores_fwd.data()), "Error: rnnt_computer forward in multibatch_test");
 
     std::vector<float> grads(logits.size());
     std::vector<float> scores_bwd(B);
     throw_on_error(rnnt_computer.cost_and_grad(scores_bwd.data(), grads.data()),
-                   "Error: compute_rnnt_loss forward+backward in multibatch_test");
+                   "Error: rnnt_computer forward+backward in multibatch_test");
 
     workspace_manager.free_workspace();
 
@@ -318,7 +317,7 @@ bool infnan_test() {
 
     float cost;
     CpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, 1);
-    throw_on_error(rnnt_computer.cost_and_grad(&cost, grads.data()), "Error: compute_rnnt_loss forward in infnan_test");
+    throw_on_error(rnnt_computer.cost_and_grad(&cost, grads.data()), "Error: rnnt_computer forward in infnan_test");
 
     workspace_manager.free_workspace();
 

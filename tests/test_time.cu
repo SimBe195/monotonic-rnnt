@@ -1,135 +1,86 @@
-#include <cmath>
+#include <chrono>
 #include <cstdlib>
-#include <random>
-#include <tuple>
+#include <iostream>
 #include <vector>
 
-#include <chrono>
-
-#include <iostream>
-
-#include <rnnt.h>
-
+#include "gpu_rnnt.h"
+#include "gpu_workspace_manager.h"
 #include "test.h"
 
-template<typename T>
+template <typename T>
 void vector_to_gpu(T*& gpu_space, std::vector<T>& vec, cudaStream_t& stream) {
     cudaMalloc(&gpu_space, vec.size() * sizeof(T));
     cudaMemcpyAsync(gpu_space, vec.data(), vec.size() * sizeof(T), cudaMemcpyHostToDevice, stream);
 }
 
-template<typename T>
-void vector_to_gpu(T*& gpu_space, const T* cpu_space, int len, cudaStream_t& stream) {
-    cudaMalloc(&gpu_space, len * sizeof(T));
-    cudaMemcpyAsync(gpu_space, cpu_space, len * sizeof(T), cudaMemcpyHostToDevice, stream);
-}
+bool run_test(int B, int T, int S, int V) {
+    int len = B * T * (S + 1) * V;
+    std::vector<float> acts(len);
+    genActs(acts);
 
-bool run_test(int B, int T, int L, int A, int num_threads) {
-    std::mt19937 gen(2);
-
-    auto start = std::chrono::high_resolution_clock::now();
-    int len = B * T * (L + 1) * A;
-    float * acts = genActs(len);
-    auto end = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = end - start;
-    std::cout << "genActs elapsed time: " << elapsed.count() * 1000 << " ms\n";
-
-    std::vector<std::vector<int>> labels;
-    std::vector<int> sizes;
+    std::vector<int> lengths;
+    std::vector<int> label_lengths;
+    std::vector<int> labels = genLabels(V, S * T);
 
     for (int mb = 0; mb < B; ++mb) {
-        labels.push_back(genLabels(A, L));
-        sizes.push_back(T);
-    }
-
-    std::vector<int> flat_labels;
-    std::vector<int> label_lengths;
-    for (const auto& l : labels) {
-        flat_labels.insert(flat_labels.end(), l.begin(), l.end());
-        label_lengths.push_back(l.size());
+        lengths.push_back(T);
+        label_lengths.push_back(S);
     }
 
     std::vector<float> costs(B);
 
-    RNNTOptions options{};
-    options.maxT = T;
-    options.maxU = L + 1;
-    options.blank_label = 0;
-    options.loc = RNNT_GPU;
     cudaStream_t stream;
     cudaStreamCreate(&stream);
-    options.stream = stream;
-    options.num_threads = num_threads;
 
     float* acts_gpu;
-    vector_to_gpu<float>(acts_gpu, acts, len, stream);
-    // cudaMalloc(&acts_gpu, len * sizeof(float));
-    // cudaMemcpyAsync(acts_gpu, acts, len * sizeof(float), cudaMemcpyHostToDevice, stream);
+    vector_to_gpu<float>(acts_gpu, acts, stream);
     float* grads_gpu;
     cudaMalloc(&grads_gpu, len * sizeof(float));
-    int* label_gpu;
-    vector_to_gpu(label_gpu, flat_labels, stream);
-    // cudaMalloc(&label_gpu, flat_labels.size() * sizeof(int))
-    // cudaMemcpyAsync(label_gpu, flat_labels.data(), flat_labels.size() * sizeof(int), cudaMemcpyHostToDevice, stream);
-    int* label_length_gpu;
-    vector_to_gpu(label_length_gpu, label_lengths, stream);
-    // cudaMalloc(&label_length_gpu, label_lengths.size() * sizeof(int));
-    // cudaMemcpyAsync(label_length_gpu, label_lengths.data(), label_lengths.size() * sizeof(int), cudaMemcpyHostToDevice, stream);
-    int* input_length_gpu;
-    vector_to_gpu(input_length_gpu, sizes, stream);
-    // cudaMalloc(&input_length_gpu, sizes.size() * sizeof(int));
-    // cudaMemcpyAsync(input_length_gpu, sizes.data(), sizes.size() * sizeof(int), cudaMemcpyHostToDevice, stream);
-
-    size_t gpu_alloc_bytes;
-    throw_on_error(get_workspace_size(T, L+1, B,
-                                     true,
-                                     &gpu_alloc_bytes),
-                    "Error: get_workspace_size in run_test");
+    int* labels_gpu;
+    vector_to_gpu(labels_gpu, labels, stream);
+    int* lengths_gpu;
+    vector_to_gpu(lengths_gpu, lengths, stream);
+    int* label_lengths_gpu;
+    vector_to_gpu(label_lengths_gpu, label_lengths, stream);
 
     std::vector<float> time;
     for (int i = 0; i < 10; ++i) {
-        void* rnnt_gpu_workspace;
-        cudaMalloc(&rnnt_gpu_workspace, gpu_alloc_bytes);
+        GpuRNNTWorkspaceManager<float> workspace_manager(acts_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
+        throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in run_test");
 
-        start = std::chrono::high_resolution_clock::now();
-        throw_on_error(compute_rnnt_loss(acts_gpu, grads_gpu,
-                                        label_gpu, label_length_gpu,
-                                        input_length_gpu,
-                                        A, B,
-                                        costs.data(),
-                                        rnnt_gpu_workspace,
-                                        options),
-                        "Error: compute_rnnt_loss (0) in run_test");
-        end = std::chrono::high_resolution_clock::now();
+        GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
 
-        cudaFree(rnnt_gpu_workspace);
-        elapsed = end - start;
+        auto start = std::chrono::high_resolution_clock::now();
+        throw_on_error(rnnt_computer.cost_and_grad(costs.data(), grads_gpu), "Error: rnnt_computer in run_test");
+        auto end = std::chrono::high_resolution_clock::now();
+
+        workspace_manager.free_workspace();
+
+        std::chrono::duration<float> elapsed = end - start;
         time.push_back(elapsed.count() * 1000);
-        std::cout << "compute_rnnt_loss elapsed time: " << elapsed.count() * 1000 << " ms\n";
+        printf("compute_rnnt_loss elapsed time: %.2f ms\n", elapsed.count() * 1000);
     }
 
+    cudaFree(acts_gpu);
     cudaFree(grads_gpu);
-    cudaFree(label_gpu);
-    cudaFree(label_length_gpu);
-    cudaFree(input_length_gpu);
+    cudaFree(labels_gpu);
+    cudaFree(lengths_gpu);
+    cudaFree(label_lengths_gpu);
 
     float sum = 0;
-    for (int i = 0; i < 10; ++i) {
-        sum += time[i];
+    for (float t : time) {
+        sum += t;
     }
-    sum /= time.size();
+    sum /= static_cast<float>(time.size());
 
-    float std = 0;
-    for (int i = 0; i < 10; ++i) {
-        std += (time[i] - sum) * (time[i] - sum);
+    float variance = 0;
+    for (float t : time) {
+        variance += (t - sum) * (t - sum);
     }
-    std /= time.size();
+    variance /= static_cast<float>(time.size());
 
-    std::cout << "average 10 time cost: " << sum << " ms variance: " << std << std::endl;
+    printf("Average time over %zu computations: %.2f ms, variance: %.2f\n", time.size(), sum, variance);
 
-    float cost = std::accumulate(costs.begin(), costs.end(), 0.);
-
-    free(acts);
     return true;
 }
 
@@ -141,20 +92,9 @@ int main(int argc, char** argv) {
 
     int B = atoi(argv[1]);
     int T = atoi(argv[2]);
-    int L = atoi(argv[3]);
-    int A = atoi(argv[4]);
-    std::cout << "Arguments: " \
-                << "\nBatch size: " << B \
-                << "\nTime step: " << T \
-                << "\nLabel length: " << L \
-                << "\nAlphabet size: " << A \
-                << std::endl;
-    
-    int num_threads = 1;
-    if (argc >= 6) {
-        num_threads = atoi(argv[5]);
-        std::cout << "Num threads: " << num_threads << std::endl;
-    }
+    int S = atoi(argv[3]);
+    int V = atoi(argv[4]);
+    printf("Arguments:\nBatch size: %d\nTime step: %d\nLabel length: %d\nAlphabet size: %d\n", B, T, S, V);
 
-    run_test(B, T, L, A, num_threads);
+    run_test(B, T, S, V);
 }

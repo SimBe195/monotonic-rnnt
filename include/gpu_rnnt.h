@@ -5,13 +5,9 @@
 #include <stdio.h>
 #endif
 
-#include <algorithm>
+#ifdef DEBUG_TIME
 #include <chrono>
-#include <cmath>
-#include <cstring>
-#include <limits>
-#include <numeric>
-#include <tuple>
+#endif
 
 #include "gpu_rnnt_kernel.h"
 #include "gpu_workspace_manager.h"
@@ -29,10 +25,12 @@ class GpuRNNTComputer {
     GpuRNNTComputer &operator=(const GpuRNNTComputer &) = delete;
 
     RNNTStatus cost_and_grad(ProbT *costs, ProbT *grads) {
+        std::vector<int> lengths_test(5);
         int B = workspace_manager_.B_host();
         auto T = workspace_manager_.T_host(stream_);
         auto S = workspace_manager_.S_host(stream_);
         int V = workspace_manager_.V_host();
+        int S_max = workspace_manager_.S_max_host(stream_);
 
         bool training = (grads != nullptr);
 
@@ -50,7 +48,7 @@ class GpuRNNTComputer {
 #ifdef DEBUG_TIME
         auto end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = end - start;
-        printf"DEBUG: log_softmax denom %.2f ms\n", elapsed.count() * 1000);
+        printf("DEBUG: log_softmax denom %.2f ms\n", elapsed.count() * 1000);
         start = std::chrono::high_resolution_clock::now();
 #endif
 
@@ -86,7 +84,7 @@ class GpuRNNTComputer {
             workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices, workspace_manager_.S_max,
             blank_);
 #else
-        compute_alphas_kernel<ProbT><<<B, workspace_manager_.S_max_host(stream_) + 1, 0, stream_>>>(
+        compute_alphas_kernel<ProbT><<<B, S_max + 1, 0, stream_>>>(
             workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.alphas, workspace_manager_.ll_forward,
             workspace_manager_.T, workspace_manager_.S, workspace_manager_.V, workspace_manager_.labels,
             workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices, workspace_manager_.S_max,
@@ -124,6 +122,10 @@ class GpuRNNTComputer {
 #ifdef DEBUG_TIME
             start = std::chrono::high_resolution_clock::now();
 #endif
+            cudaMemcpy(lengths_test.data(), workspace_manager_.T, sizeof(int) * lengths_test.size(), cudaMemcpyDeviceToHost);
+            for (int & l : lengths_test) {
+                l = 0;
+            }
 #ifdef USE_NAIVE_KERNEL
             compute_betas_kernel_naive<ProbT><<<1, B, 0, stream_>>>(
                 workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.betas,
@@ -131,12 +133,16 @@ class GpuRNNTComputer {
                 workspace_manager_.labels, workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices,
                 workspace_manager_.S_max, blank_);
 #else
-            compute_betas_kernel<ProbT><<<B, workspace_manager_.S_max_host(stream_) + 1, 0, stream_>>>(
+            compute_betas_kernel<ProbT><<<B, S_max + 1, 0, stream_>>>(
                 workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.betas,
                 workspace_manager_.ll_backward, workspace_manager_.T, workspace_manager_.S, workspace_manager_.V,
                 workspace_manager_.labels, workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices,
                 workspace_manager_.S_max, blank_);
 #endif
+            cudaMemcpy(lengths_test.data(), workspace_manager_.T, sizeof(int) * lengths_test.size(), cudaMemcpyDeviceToHost);
+            for (int & l : lengths_test) {
+                l = 0;
+            }
 #ifdef DEBUG_TIME
             cudaStreamSynchronize(stream_);
             end = std::chrono::high_resolution_clock::now();
