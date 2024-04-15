@@ -1,10 +1,19 @@
+__globals__ = ["register_op", "rnnt_loss", "_RNNTLossGrad"]
+
 import os
 
 import tensorflow as tf
+
 from tensorflow.python.framework import ops
 
-dir_path = os.path.dirname(os.path.realpath(__file__))
-_monotonic_rnnt = tf.load_op_library(f"{dir_path}/libmonotonic_rnnt_tf_op.so")
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+
+_monotonic_rnnt = None
+
+
+def register_op(library_path: str) -> None:
+    global _monotonic_rnnt
+    _monotonic_rnnt = tf.load_op_library(library_path)
 
 
 def rnnt_loss(
@@ -36,6 +45,9 @@ def rnnt_loss(
         (as negative log probabilities).
     * This class performs the softmax operation internally.
     """
+    assert (
+        _monotonic_rnnt is not None
+    ), "Call `register_op` to register the operation before calling `rnnt_loss`."
     loss, _ = _monotonic_rnnt.monotonic_rnnt(
         acts,
         labels,
@@ -52,10 +64,10 @@ def rnnt_loss(
 def _RNNTLossGrad(op, grad_loss, _):
     """
     Args:
-        op: Executed operation. Can be used to retreive input/output values.
-        grad_loss: gradient with respect to first operation output (loss).
-                   Usually just [1, 1, ..., 1] (shape [B]).
-        _: gradient with respect to second operation output (grad). Unused.
+    op: Executed operation. Can be used to retreive input/output values.
+    grad_loss: gradient with respect to first operation output (loss).
+               Usually just [1, 1, ..., 1] (shape [B]).
+    _: gradient with respect to second operation output (grad). Unused.
 
     Returns:
         Gradient with respect to each input. Only the activations (input 0)
