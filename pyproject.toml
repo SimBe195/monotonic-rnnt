@@ -1,0 +1,12 @@
+[project]
+name = "monotonic_rnnt"
+description = "CUDA operation for monotonic RNNT loss computation with tensorflow and pytorch bindings"
+version = "1.0.0"
+authors = [{ name = "Simon Berger", email = "sberger@cs.rwth-aachen.de" }]
+
+[tool.pytest.ini_options]
+filterwarnings = ["ignore::DeprecationWarning"]
+log_cli = true
+log_cli_level = "INFO"
+log_cli_format = "%(asctime)s [%(levelname)8s] %(message)s (%(filename)s:%(lineno)s)"
+log_cli_date_format = "%Y-%m-%d %H:%M:%S"
