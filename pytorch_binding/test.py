@@ -1,6 +1,7 @@
+import torch
+
 from _pytest.config import Notset
 import pytest
-import tensorflow as tf
 
 from pytorch_binding import monotonic_rnnt_loss
 

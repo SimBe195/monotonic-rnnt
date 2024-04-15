@@ -15,7 +15,7 @@ class MonotonicRNNTFunction(torch.autograd.Function):
     ) -> torch.Tensor:
         assert monotonic_rnnt_cpp is not None
         is_cuda = acts.is_cuda
-        loss_func = monotonic_rnnt_cpp.cpu_monotonic_rnnt if is_cuda else monotonic_rnnt_cpp.gpu_monotonic_rnnt
+        loss_func = monotonic_rnnt_cpp.gpu_monotonic_rnnt if is_cuda else monotonic_rnnt_cpp.cpu_monotonic_rnnt
         grads = torch.zeros_like(acts) if acts.requires_grad else torch.zeros(0).to(acts)
         costs = torch.zeros(labels.size(0), dtype=acts.dtype)
 
@@ -24,6 +24,8 @@ class MonotonicRNNTFunction(torch.autograd.Function):
             labels,
             input_lengths,
             label_lengths,
+            costs,
+            grads,
             blank_label,
             0
         )
@@ -55,7 +57,7 @@ class MonotonicRNNTFunction(torch.autograd.Function):
         grad_outputs = grad_outputs.unsqueeze(1)
         # [T_1*(S_1+1) + T_2*(S_2+1) + ... + T_B*(S_B+1), 1]
         grad_outputs = grad_outputs * grad
-        return [grad_outputs, None, None, None]
+        return grad_outputs, None, None, None, None
 
 
 

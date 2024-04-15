@@ -30,12 +30,12 @@ int cpu_monotonic_rnnt(torch::Tensor acts, torch::Tensor labels, torch::Tensor i
                                                      static_cast<int>(V));
     auto rnnt_status = workspace_manager.create_workspace();
 
-    TORCH_CHECK(rnnt_status, "cpu_rnnt error in create_workspace");
+    TORCH_CHECK(rnnt_status == RNNT_STATUS_SUCCESS, "cpu_rnnt error in create_workspace");
 
     CpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads);
 
     rnnt_status = rnnt_computer.cost_and_grad(costs.data<float>(), grads.data<float>());
-    TORCH_CHECK(rnnt_status, "cpu_rnnt error in rnnt_computer");
+    TORCH_CHECK(rnnt_status == RNNT_STATUS_SUCCESS, "cpu_rnnt error in rnnt_computer");
 
     return rnnt_status;
 }
