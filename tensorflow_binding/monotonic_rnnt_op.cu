@@ -1,5 +1,7 @@
 #ifdef RNNT_ENABLE_GPU
 
+#define EIGEN_USE_GPU
+#include <cuda.h>
 #include "gpu_rnnt.h"
 #include "gpu_workspace_manager.h"
 
@@ -132,9 +134,8 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
 
 #endif
 
-        OP_REQUIRES(
-            ctx, rnnt_status == RNNT_STATUS_SUCCESS,
-            tf::errors::Internal("monotonic_rnnt error in rnnt_computer: ", rnntGetStatusString(rnnt_status)));
+        OP_REQUIRES(ctx, rnnt_status == RNNT_STATUS_SUCCESS,
+                    tf::errors::Internal("monotonic_rnnt error in rnnt_computer: ", rnntGetStatusString(rnnt_status)));
     }
 
    private:
@@ -158,10 +159,8 @@ class MonotonicRNNTOpGPU : public MonotonicRNNTOpBase {
     }
 
     RNNTOptions create_options(tf::OpKernelContext *ctx) override {
-        CUstream cuda_stream;
-        cudaStreamCreate(&cuda_stream);
         auto options = RNNTOptions{};
-        options.stream = cuda_stream;
+        options.stream = ctx->eigen_device<Eigen::GpuDevice>().stream();
         return options;
     }
 };

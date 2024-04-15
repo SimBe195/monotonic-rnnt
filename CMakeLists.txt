@@ -108,6 +108,13 @@ if (INCLUDE_TF_OP)
     target_link_libraries(monotonic_rnnt_tf_op PUBLIC ${Tensorflow_FRAMEWORK})
 endif()
 
+# find_package(Torch REQUIRED)
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+#
+# add_library(monotonic_rnnt_torch_op SHARED pytorch_binding/monotonic_rnnt_op.cu)
+# target_include_directories(monotonic_rnnt_torch_op PUBLIC ${TORCH_INCLUDE_DIRS})
+# target_link_libraries(monotonic_rnnt_torch_op PUBLIC ${TORCH_LIBRARIES})
+
 INSTALL(TARGETS monotonic_rnnt
         RUNTIME DESTINATION "bin"
         LIBRARY DESTINATION "lib"
