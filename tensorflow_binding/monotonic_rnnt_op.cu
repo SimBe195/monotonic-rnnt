@@ -64,6 +64,13 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
         const auto V = acts_shape.dim_size(1);
 
         auto acts_t = acts->tensor<float, 2>();
+        // std::vector<float> acts_host(acts->dim_size(0) * acts->dim_size(1));
+        // cudaMemcpy(acts_host.data(), acts_t.data(), sizeof(float) * acts_host.size(), cudaMemcpyDeviceToHost);
+        // printf("Pre-computation CPU activations:\n");
+        // for (size_t v = 0; v < V; ++v) {
+        //     printf("%.4f ", acts_host[v]);
+        // }
+        // printf("\n");
         auto labels_t = labels->tensor<int32_t, 2>();
 
         OP_REQUIRES(ctx, tf::FastBoundsCheck(V, std::numeric_limits<int>::max()),
@@ -99,7 +106,7 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
         GpuRNNTWorkspaceManager<float> workspace_manager(acts_t.data(), labels_t.data(), static_cast<int>(B),
                                                          input_lengths_t.data(), label_lengths_t.data(),
                                                          static_cast<int>(V));
-        auto rnnt_status = workspace_manager.get_workspace_size(&workspace_size_bytes, options.stream);
+        auto rnnt_status = workspace_manager.get_workspace_size(&workspace_size_bytes);
 #else
         CpuRNNTWorkspaceManager<float> workspace_manager(acts_t.data(), labels_t.data(), static_cast<int>(B),
                                                          input_lengths_t.data(), label_lengths_t.data(),
@@ -118,7 +125,7 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
 
         // compute RNNT
 #ifdef RNNT_ENABLE_GPU
-        workspace_manager.set_workspace(workspace_t.data(), options.stream);
+        workspace_manager.set_workspace(workspace_t.data());
 
         GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
         rnnt_status = rnnt_computer.cost_and_grad(costs_t.data(), grads_t.data());
@@ -132,9 +139,8 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
 
 #endif
 
-        OP_REQUIRES(
-            ctx, rnnt_status == RNNT_STATUS_SUCCESS,
-            tf::errors::Internal("monotonic_rnnt error in rnnt_computer: ", rnntGetStatusString(rnnt_status)));
+        OP_REQUIRES(ctx, rnnt_status == RNNT_STATUS_SUCCESS,
+                    tf::errors::Internal("monotonic_rnnt error in rnnt_computer: ", rnntGetStatusString(rnnt_status)));
     }
 
    private:

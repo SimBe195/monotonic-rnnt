@@ -8,6 +8,13 @@
 
 const int warp_size = 32;
 
+/*
+ *  Template structure for a parallel reduction within a CUDA thread block
+ *  Template Parameters:
+ *      NT: Number of threads per block
+ *      T: Data type of the elements
+ *      Rop: Binary associative reduction operation
+ */
 template <int NT, typename T, typename Rop>
 struct CTAReduce {
     struct Storage {
@@ -16,6 +23,18 @@ struct CTAReduce {
 
     __device__ static T
 
+    /*
+     *  Reduce the elements within a CUDA block using shared memory and shuffle operations.
+     *  Parameters:
+     *      tid: Thread ID within the block
+     *      x: Initial value of the reduction for the thread
+     *      storage: Shared memory storage for the reduction
+     *      count: Number of elements to reduce
+     *      g: Binary reduction function
+     *  Compute output = g(x[0], g(x[1], g(x[2], ..., g(x[count-2], x[count-1]))))
+     *  Requires that the reduce operation g is associative, i.e. g(a, g(b, c)) = g(g(a, b), c)
+     *  Examples could be sum, product or maximum of all elements
+     */
     reduce(int tid, T x, Storage &storage, int count, Rop g) {
         T *s = storage.shared;
         s[tid] = x;
@@ -45,6 +64,18 @@ struct CTAReduce {
     }
 };
 
+/*
+ *  Reduce rows of a 2D matrix using a specified operation and store the result in an output array.
+ *  Parameters:
+ *      f: Unary operation applied to each element before reduction.
+ *      g: Binary operation used for reduction
+ *      acts: Input matrix
+ *      output: Output vector where results are stored
+ *      num_rows: Number of rows in the matrix
+ *
+ *  Returns:
+ *      For each column j, output[j] = g(f(acts[0, j]), g(f(acts[1, j]), ...))
+ */
 template <int NT, typename Iop, typename Rop, typename T>
 __global__ void reduce_rows(Iop f, Rop g, const T *const acts, T *output, int num_rows) {
     typedef CTAReduce<NT, T, Rop> R;
@@ -73,6 +104,11 @@ __global__ void reduce_rows(Iop f, Rop g, const T *const acts, T *output, int nu
     if (tid == 0) output[col] = curr;
 }
 
+/*
+ * Similar to `reduce_rows` but each element is first subtracted by the current element from the output array
+ * before the unary operation `f` is applied.
+ * For each column j, output[j] = -output[j] - log(g(f(acts[0, j] - output[j]), g(f(acts[1, j] - output[j]), ...)))
+ */
 template <int NT, typename Iop, typename Rop, typename T>
 __global__ void reduce_minus(Iop f, Rop g, const T *const acts, T *output, int num_rows) {
     typedef CTAReduce<NT, T, Rop> R;
@@ -102,23 +138,24 @@ __global__ void reduce_minus(Iop f, Rop g, const T *const acts, T *output, int n
     if (tid == 0) output[col] = -max - log(curr);
 }
 
+/*
+ *  Helper struct to execute the kernel functions with appropriate grid and block dimensions
+ */
 struct ReduceHelper {
     template <typename T, typename Iof, typename Rof>
     static void impl(Iof f, Rof g, const T *const acts, T *output, int num_rows, int num_cols, bool minus,
                      cudaStream_t stream) {
-        int grid_size;
-
         if (minus) {
-            grid_size = num_cols;
-            reduce_minus<128><<<grid_size, 128, 0, stream>>>(f, g, acts, output, num_rows);
-
+            reduce_minus<128><<<num_cols, 128, 0, stream>>>(f, g, acts, output, num_rows);
         } else {
-            grid_size = num_cols;
-            reduce_rows<128><<<grid_size, 128, 0, stream>>>(f, g, acts, output, num_rows);
+            reduce_rows<128><<<num_cols, 128, 0, stream>>>(f, g, acts, output, num_rows);
         }
     }
 };
 
+/*
+ *  General reduction interface that can apply any operation
+ */
 template <typename T, typename Iof, typename Rof>
 RNNTStatus reduce(Iof f, Rof g, const T *const acts, T *output, int rows, int cols, bool minus, cudaStream_t stream) {
     ReduceHelper::impl(f, g, acts, output, rows, cols, minus, stream);
@@ -129,11 +166,19 @@ RNNTStatus reduce(Iof f, Rof g, const T *const acts, T *output, int rows, int co
     return RNNT_STATUS_SUCCESS;
 }
 
+/*
+ *  Applies the exponential function to each element before reducing by addition, i.e.
+ *  output[j] = sum_i exp(acts[i, j])
+ */
 template <typename T>
 RNNTStatus reduce_exp(const T *const acts, T *get_denom, int rows, int cols, bool minus, cudaStream_t stream) {
     return reduce(rnnt_helper::exponential<T>(), rnnt_helper::add<T>(), acts, get_denom, rows, cols, minus, stream);
 }
 
+/*
+ *  Finds the maximum value in each column
+ *  output[j] = max_i exp(acts[i, j])
+ */
 template <typename T>
 RNNTStatus reduce_max(const T *const acts, T *get_denom, int rows, int cols, bool minus, cudaStream_t stream) {
     return reduce(rnnt_helper::identity<T>(), rnnt_helper::maximum<T>(), acts, get_denom, rows, cols, minus, stream);

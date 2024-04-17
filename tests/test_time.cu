@@ -8,9 +8,9 @@
 #include "test.h"
 
 template <typename T>
-void vector_to_gpu(T*& gpu_space, std::vector<T>& vec, cudaStream_t& stream) {
+void vector_to_gpu(T*& gpu_space, std::vector<T>& vec) {
     cudaMalloc(&gpu_space, vec.size() * sizeof(T));
-    cudaMemcpyAsync(gpu_space, vec.data(), vec.size() * sizeof(T), cudaMemcpyHostToDevice, stream);
+    cudaMemcpy(gpu_space, vec.data(), vec.size() * sizeof(T), cudaMemcpyHostToDevice);
 }
 
 bool run_test(int B, int T, int S, int V) {
@@ -29,26 +29,23 @@ bool run_test(int B, int T, int S, int V) {
 
     std::vector<float> costs(B);
 
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
     float* acts_gpu;
-    vector_to_gpu<float>(acts_gpu, acts, stream);
+    vector_to_gpu<float>(acts_gpu, acts);
     float* grads_gpu;
     cudaMalloc(&grads_gpu, len * sizeof(float));
     int* labels_gpu;
-    vector_to_gpu(labels_gpu, labels, stream);
+    vector_to_gpu(labels_gpu, labels);
     int* lengths_gpu;
-    vector_to_gpu(lengths_gpu, lengths, stream);
+    vector_to_gpu(lengths_gpu, lengths);
     int* label_lengths_gpu;
-    vector_to_gpu(label_lengths_gpu, label_lengths, stream);
+    vector_to_gpu(label_lengths_gpu, label_lengths);
 
     std::vector<float> time;
     for (int i = 0; i < 10; ++i) {
         GpuRNNTWorkspaceManager<float> workspace_manager(acts_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-        throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in run_test");
+        throw_on_error(workspace_manager.create_workspace(), "Error: get_workspace_size in run_test");
 
-        GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
+        GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0);
 
         auto start = std::chrono::high_resolution_clock::now();
         throw_on_error(rnnt_computer.cost_and_grad(costs.data(), grads_gpu), "Error: rnnt_computer in run_test");

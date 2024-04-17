@@ -77,30 +77,23 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
     dtype *ll_forward;   // workspace
     dtype *ll_backward;  // workspace
 
-    [[nodiscard]] std::vector<int> T_host(CUstream stream, bool sync = true) const {
+    [[nodiscard]] std::vector<int> T_host() const {
         std::vector<int> T_h(B_h);
-        cudaMemcpyAsync(T_h.data(), T, B_h * sizeof(int), cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+        cudaMemcpy(T_h.data(), T, B_h * sizeof(int), cudaMemcpyDeviceToHost);
         return T_h;
     }
-    [[nodiscard]] std::vector<int> S_host(CUstream stream, bool sync = true) const {
+    [[nodiscard]] std::vector<int> S_host() const {
         std::vector<int> S_h(B_h);
-        cudaMemcpyAsync(S_h.data(), S, B_h * sizeof(int), cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+        cudaMemcpy(S_h.data(), S, B_h * sizeof(int), cudaMemcpyDeviceToHost);
         return S_h;
     }
     [[nodiscard]] inline int B_host() const { return B_h; }
 
     [[nodiscard]] inline int V_host() const { return V_h; }
 
-    [[nodiscard]] int num_denoms(CUstream stream) const {
-        auto T_h = T_host(stream, false);
-        auto S_h = S_host(stream, false);
-        cudaStreamSynchronize(stream);
+    [[nodiscard]] int num_denoms() const {
+        auto T_h = T_host();
+        auto S_h = S_host();
 
         int result = 0;
         for (int b = 0; b < B_h; ++b) {
@@ -109,10 +102,9 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         return result;
     }
 
-    [[nodiscard]] int num_fwd_bwd_var_positions(CUstream stream) const {
-        auto T_h = T_host(stream, false);
-        auto S_h = S_host(stream, false);
-        cudaStreamSynchronize(stream);
+    [[nodiscard]] int num_fwd_bwd_var_positions() const {
+        auto T_h = T_host();
+        auto S_h = S_host();
 
         int fwd_bwd_var_positions = 0;
         for (int b = 0; b < B_h; ++b) {
@@ -122,76 +114,52 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         return fwd_bwd_var_positions;
     }
 
-    [[nodiscard]] std::vector<int> var_start_offsets_host(CUstream stream, bool sync = true) {
+    [[nodiscard]] std::vector<int> var_start_offsets_host() {
         std::vector<int> var_start_offsets_h(B_h);
-        cudaMemcpyAsync(var_start_offsets_h.data(), var_start_offsets, sizeof(int) * var_start_offsets_h.size(),
-                        cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+        cudaMemcpy(var_start_offsets_h.data(), var_start_offsets, sizeof(int) * var_start_offsets_h.size(),
+                   cudaMemcpyDeviceToHost);
         return var_start_offsets_h;
     }
 
-    [[nodiscard]] std::vector<dtype> acts_host(CUstream stream, bool sync = true) {
-        std::vector<dtype> acts_h(num_denoms(stream) * V_host());
-        cudaMemcpyAsync(acts_h.data(), acts, dtype_size_ * acts_h.size(), cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+    [[nodiscard]] std::vector<dtype> acts_host() {
+        std::vector<dtype> acts_h(num_denoms() * V_host());
+        cudaMemcpy(acts_h.data(), acts, dtype_size_ * acts_h.size(), cudaMemcpyDeviceToHost);
         return acts_h;
     }
 
-    [[nodiscard]] std::vector<dtype> denom_host(CUstream stream, bool sync = true) {
-        std::vector<dtype> denom_h(num_denoms(stream));
-        cudaMemcpyAsync(denom_h.data(), denom, dtype_size_ * denom_h.size(), cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+    [[nodiscard]] std::vector<dtype> denom_host() {
+        std::vector<dtype> denom_h(num_denoms());
+        cudaMemcpy(denom_h.data(), denom, dtype_size_ * denom_h.size(), cudaMemcpyDeviceToHost);
         return denom_h;
     }
 
-    [[nodiscard]] std::vector<dtype> alphas_host(CUstream stream, bool sync = true) {
-        std::vector<dtype> alphas_h(num_fwd_bwd_var_positions(stream));
-        cudaMemcpyAsync(alphas_h.data(), alphas, dtype_size_ * alphas_h.size(), cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+    [[nodiscard]] std::vector<dtype> alphas_host() {
+        std::vector<dtype> alphas_h(num_fwd_bwd_var_positions());
+        cudaMemcpy(alphas_h.data(), alphas, dtype_size_ * alphas_h.size(), cudaMemcpyDeviceToHost);
         return alphas_h;
     }
 
-    [[nodiscard]] std::vector<dtype> betas_host(CUstream stream, bool sync = true) {
-        std::vector<dtype> betas_h(num_fwd_bwd_var_positions(stream));
-        cudaMemcpyAsync(betas_h.data(), betas, dtype_size_ * betas_h.size(), cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+    [[nodiscard]] std::vector<dtype> betas_host() {
+        std::vector<dtype> betas_h(num_fwd_bwd_var_positions());
+        cudaMemcpy(betas_h.data(), betas, dtype_size_ * betas_h.size(), cudaMemcpyDeviceToHost);
         return betas_h;
     }
 
-    [[nodiscard]] int S_max_host(CUstream stream, bool sync = true) {
+    [[nodiscard]] int S_max_host() {
         int S_max_h;
-        cudaMemcpyAsync(&S_max_h, S_max, sizeof(int), cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+        cudaMemcpy(&S_max_h, S_max, sizeof(int), cudaMemcpyDeviceToHost);
         return S_max_h;
     }
 
-    [[nodiscard]] std::vector<dtype> ll_forward_host(CUstream stream, bool sync = true) {
+    [[nodiscard]] std::vector<dtype> ll_forward_host() {
         std::vector<dtype> ll_forward_h(B_h);
-        cudaMemcpyAsync(ll_forward_h.data(), ll_forward, dtype_size_ * B_h, cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+        cudaMemcpy(ll_forward_h.data(), ll_forward, dtype_size_ * B_h, cudaMemcpyDeviceToHost);
         return ll_forward_h;
     }
 
-    [[nodiscard]] std::vector<dtype> ll_backward_host(CUstream stream, bool sync = true) {
+    [[nodiscard]] std::vector<dtype> ll_backward_host() {
         std::vector<dtype> ll_backward_h(B_h);
-        cudaMemcpyAsync(ll_backward_h.data(), ll_backward, dtype_size_ * B_h, cudaMemcpyDeviceToHost, stream);
-        if (sync) {
-            cudaStreamSynchronize(stream);
-        }
+        cudaMemcpy(ll_backward_h.data(), ll_backward, dtype_size_ * B_h, cudaMemcpyDeviceToHost);
         return ll_backward_h;
     }
 
@@ -202,9 +170,9 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
      * \param [out] size_bytes Pointer to a scalar where the memory
      *              requirement in bytes will be placed.
      **/
-    RNNTStatus get_workspace_size(size_t *size_bytes, CUstream stream) const {
-        auto T_h = T_host(stream);
-        auto S_h = S_host(stream);
+    RNNTStatus get_workspace_size(size_t *size_bytes) const {
+        auto T_h = T_host();
+        auto S_h = S_host();
 
         if (B_h <= 0) {
             return RNNT_STATUS_INVALID_VALUE;
@@ -215,11 +183,11 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
             }
         }
 
-        *size_bytes = dtype_size_ * num_denoms(stream)                       // denom
-                      + 2 * dtype_size_ * num_fwd_bwd_var_positions(stream)  // alpha+beta
-                      + 2 * B_h * sizeof(int)                                // var_start_offsets + denom_start_indices
-                      + 2 * B_h * dtype_size_                                // ll_forward + ll_backward
-                      + 3 * sizeof(int);                                     // B, V, S_max
+        *size_bytes = dtype_size_ * num_denoms()                       // denom
+                      + 2 * dtype_size_ * num_fwd_bwd_var_positions()  // alpha+beta
+                      + 2 * B_h * sizeof(int)                          // var_start_offsets + denom_start_indices
+                      + 2 * B_h * dtype_size_                          // ll_forward + ll_backward
+                      + 3 * sizeof(int);                               // B, V, S_max
 
 #ifdef DEBUG_SPACE
         printf("Reserve %.3f mb of memory for computations\n", static_cast<float>(*size_bytes) / 1e6);
@@ -228,12 +196,11 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         return RNNT_STATUS_SUCCESS;
     }
 
-    void set_workspace(void *workspace, CUstream stream) {
+    void set_workspace(void *workspace) {
         workspace_ = workspace;
 
-        auto T_h = T_host(stream, false);
-        auto S_h = S_host(stream, false);
-        cudaStreamSynchronize(stream);
+        auto T_h = T_host();
+        auto S_h = S_host();
 
         int var_start_offsets_host[B_h + 1];
         var_start_offsets_host[0] = 0;
@@ -261,12 +228,11 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
 
         denom_start_indices = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
         current_offset += B_h * sizeof(int);
-        cudaMemcpyAsync(denom_start_indices, denom_start_indices_host, B_h * sizeof(int), cudaMemcpyHostToDevice,
-                        stream);
+        cudaMemcpy(denom_start_indices, denom_start_indices_host, B_h * sizeof(int), cudaMemcpyHostToDevice);
 
         var_start_offsets = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
         current_offset += B_h * sizeof(int);
-        cudaMemcpyAsync(var_start_offsets, var_start_offsets_host, B_h * sizeof(int), cudaMemcpyHostToDevice, stream);
+        cudaMemcpy(var_start_offsets, var_start_offsets_host, B_h * sizeof(int), cudaMemcpyHostToDevice);
 
         ll_forward = reinterpret_cast<dtype *>(static_cast<char *>(workspace) + current_offset);
         current_offset += dtype_size_ * B_h;
@@ -276,26 +242,24 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
 
         B = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
         current_offset += sizeof(int);
-        cudaMemcpyAsync(B, &B_h, sizeof(int), cudaMemcpyHostToDevice, stream);
+        cudaMemcpy(B, &B_h, sizeof(int), cudaMemcpyHostToDevice);
 
         V = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
         current_offset += sizeof(int);
-        cudaMemcpyAsync(V, &V_h, sizeof(int), cudaMemcpyHostToDevice, stream);
+        cudaMemcpy(V, &V_h, sizeof(int), cudaMemcpyHostToDevice);
 
         int S_max_h = *std::max_element(S_h.begin(), S_h.end());
         S_max = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
-        cudaMemcpyAsync(S_max, &S_max_h, sizeof(int), cudaMemcpyHostToDevice, stream);
-
-        cudaStreamSynchronize(stream);
+        cudaMemcpy(S_max, &S_max_h, sizeof(int), cudaMemcpyHostToDevice);
     }
 
-    RNNTStatus create_workspace(CUstream stream) {
+    RNNTStatus create_workspace() {
         size_t gpu_bytes;
-        auto status = get_workspace_size(&gpu_bytes, stream);
+        auto status = get_workspace_size(&gpu_bytes);
         if (status == RNNT_STATUS_SUCCESS) {
             void *workspace;
             cudaMalloc(&workspace, gpu_bytes);
-            set_workspace(workspace, stream);
+            set_workspace(workspace);
         }
         return status;
     }

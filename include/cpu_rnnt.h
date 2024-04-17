@@ -1,9 +1,7 @@
 #ifndef MONOTONIC_RNNT_CPU_RNNT_H
 #define MONOTONIC_RNNT_CPU_RNNT_H
 
-#if defined(DEBUG_TIME) or defined(DEBUG_KERNEL)
 #include <stdio.h>
-#endif
 
 #ifdef DEBUG_TIME
 #include <chrono>
@@ -116,20 +114,39 @@ class CpuRNNTComputer {
             }
         }
 
-#ifdef DEBUG_KERNEL
-        printf("cpu acts and denominators\n");
+#ifdef DEBUG_LOG_SOTMAX
+        printf("cpu acts and denoms\n");
         for (int b = 0; b < workspace_manager_.B(); ++b) {
             printf("b = %d\n", b);
-            for (int t = 0; t < workspace_manager_.T(b); ++t) {
+            for (int t = 0; t < 10; ++t) {
                 printf("  t = %d\n", t);
-                for (int s = 0; s <= workspace_manager_.S(b); ++s) {
+                for (int s = 0; s <= 3; ++s) {
                     printf("    s = %d\n      ", s);
                     for (int v = 0; v < workspace_manager_.V(); ++v) {
                         printf("%.4f ", workspace_manager_.act(b, t, s, v));
                     }
                     printf(" => %.4f\n", workspace_manager_.get_denom(b, t, s));
                 }
+                printf("\n");
             }
+            printf("\n");
+        }
+        printf("cpu probs\n");
+        for (int b = 0; b < B; b++) {
+            printf("b = %d\n", b);
+            for (int t = 0; t < 10; t++) {
+                printf("  t = %d\n", t);
+                for (int s = 0; s <= 3; s++) {
+                    printf("    s = %d\n      ", s);
+                    int denom_idx = denom_start_indices_host[b] + t * (S[b] + 1) + s;
+                    for (int v = 0; v < V; v++) {
+                        printf("%.4f ", exp(cpu_acts[(denom_idx)*V + v] + cpu_denoms[denom_idx]));
+                    }
+                    printf("\n");
+                }
+                printf("\n");
+            }
+            printf("\n");
         }
         printf("\n");
 #endif
@@ -149,7 +166,7 @@ class CpuRNNTComputer {
             }
         }
 
-#ifdef DEBUG_KERNEL
+#ifdef DEBUG_FWDBWD
         printf("cpu alphas (b = %d, T = %d, S = %d):\n", b, workspace_manager_.T(b), workspace_manager_.S(b));
         for (int s = workspace_manager_.S(b); s >= 0; --s) {
             for (int t = -1; t < workspace_manager_.T(b); ++t) {
@@ -180,7 +197,7 @@ class CpuRNNTComputer {
             }
         }
 
-#ifdef DEBUG_KERNEL
+#ifdef DEBUG_FWDBWD
         printf("cpu betas (b = %d, T = %d, S = %d):\n", b, workspace_manager_.T(b), workspace_manager_.S(b));
         for (int s = workspace_manager_.S(b); s >= 0; --s) {
             for (int t = 0; t <= workspace_manager_.T(b); ++t) {
@@ -214,7 +231,7 @@ class CpuRNNTComputer {
             }
         }
 
-#ifdef DEBUG_KERNEL
+#ifdef DEBUG_GRADS
         printf("cpu grads (b = %d)\n", b);
         for (int t = 0; t < workspace_manager_.T(b); ++t) {
             printf("t = %d\n  ", t);

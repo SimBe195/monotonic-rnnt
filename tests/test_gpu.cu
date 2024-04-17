@@ -8,9 +8,9 @@
 #include "test.h"
 
 template <typename T>
-void vector_to_gpu(T *&gpu_space, std::vector<T> &vec, cudaStream_t &stream) {
+void vector_to_gpu(T *&gpu_space, std::vector<T> &vec) {
     cudaMalloc(&gpu_space, vec.size() * sizeof(T));
-    cudaMemcpyAsync(gpu_space, vec.data(), vec.size() * sizeof(T), cudaMemcpyHostToDevice, stream);
+    cudaMemcpy(gpu_space, vec.data(), vec.size() * sizeof(T), cudaMemcpyHostToDevice);
 }
 
 bool fwd_test() {
@@ -50,21 +50,20 @@ bool fwd_test() {
     std::vector<float> logits(probs.size());
     std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
     float *logits_gpu;
-    vector_to_gpu(logits_gpu, logits, stream);
+    vector_to_gpu(logits_gpu, logits);
     int *labels_gpu;
-    vector_to_gpu(labels_gpu, labels, stream);
+    vector_to_gpu(labels_gpu, labels);
     int *lengths_gpu;
-    vector_to_gpu(lengths_gpu, lengths, stream);
+    vector_to_gpu(lengths_gpu, lengths);
     int *label_lengths_gpu;
-    vector_to_gpu(label_lengths_gpu, label_lengths, stream);
-    cudaStreamSynchronize(stream);
+    vector_to_gpu(label_lengths_gpu, label_lengths);
 
     GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in fwd_test");
+    throw_on_error(workspace_manager.create_workspace(), "Error: get_workspace_size in fwd_test");
+
+    CUstream stream;
+    cudaStreamCreate(&stream);
 
     float score_fwd;
     GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
@@ -120,21 +119,20 @@ bool bwd_test() {
     std::vector<float> logits(probs.size());
     std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
     float *logits_gpu;
-    vector_to_gpu(logits_gpu, logits, stream);
+    vector_to_gpu(logits_gpu, logits);
     int *labels_gpu;
-    vector_to_gpu(labels_gpu, labels, stream);
+    vector_to_gpu(labels_gpu, labels);
     int *lengths_gpu;
-    vector_to_gpu(lengths_gpu, lengths, stream);
+    vector_to_gpu(lengths_gpu, lengths);
     int *label_lengths_gpu;
-    vector_to_gpu(label_lengths_gpu, label_lengths, stream);
-    cudaStreamSynchronize(stream);
+    vector_to_gpu(label_lengths_gpu, label_lengths);
 
     GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in bwd_test");
+    throw_on_error(workspace_manager.create_workspace(), "Error: get_workspace_size in bwd_test");
+
+    CUstream stream;
+    cudaStreamCreate(&stream);
 
     float score_fwd;
     GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
@@ -196,21 +194,20 @@ bool grads_test() {
     std::vector<float> logits(probs.size());
     std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
     float *logits_gpu;
-    vector_to_gpu(logits_gpu, logits, stream);
+    vector_to_gpu(logits_gpu, logits);
     int *labels_gpu;
-    vector_to_gpu(labels_gpu, labels, stream);
+    vector_to_gpu(labels_gpu, labels);
     int *lengths_gpu;
-    vector_to_gpu(lengths_gpu, lengths, stream);
+    vector_to_gpu(lengths_gpu, lengths);
     int *label_lengths_gpu;
-    vector_to_gpu(label_lengths_gpu, label_lengths, stream);
-    cudaStreamSynchronize(stream);
+    vector_to_gpu(label_lengths_gpu, label_lengths);
 
     GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in grads_test");
+    throw_on_error(workspace_manager.create_workspace(), "Error: get_workspace_size in grads_test");
+
+    CUstream stream;
+    cudaStreamCreate(&stream);
 
     float *grads;
     cudaMalloc(&grads, sizeof(float) * logits.size());
@@ -306,21 +303,20 @@ bool multibatch_test() {
     std::vector<float> logits(probs.size());
     std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
     float *logits_gpu;
-    vector_to_gpu(logits_gpu, logits, stream);
+    vector_to_gpu(logits_gpu, logits);
     int *labels_gpu;
-    vector_to_gpu(labels_gpu, labels, stream);
+    vector_to_gpu(labels_gpu, labels);
     int *lengths_gpu;
-    vector_to_gpu(lengths_gpu, lengths, stream);
+    vector_to_gpu(lengths_gpu, lengths);
     int *label_lengths_gpu;
-    vector_to_gpu(label_lengths_gpu, label_lengths, stream);
-    cudaStreamSynchronize(stream);
+    vector_to_gpu(label_lengths_gpu, label_lengths);
 
     GpuRNNTWorkspaceManager<float> workspace_manager(logits_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in multibatch_test");
+    throw_on_error(workspace_manager.create_workspace(), "Error: get_workspace_size in multibatch_test");
+
+    CUstream stream;
+    cudaStreamCreate(&stream);
 
     GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
     std::vector<float> scores_fwd(B);
@@ -402,21 +398,20 @@ bool infnan_test() {
 
     std::vector<int> lengths = {T};
 
-    cudaStream_t stream;
-    cudaStreamCreate(&stream);
-
     float *acts_gpu;
-    vector_to_gpu(acts_gpu, acts, stream);
+    vector_to_gpu(acts_gpu, acts);
     int *labels_gpu;
-    vector_to_gpu(labels_gpu, labels, stream);
+    vector_to_gpu(labels_gpu, labels);
     int *lengths_gpu;
-    vector_to_gpu(lengths_gpu, lengths, stream);
+    vector_to_gpu(lengths_gpu, lengths);
     int *label_lengths_gpu;
-    vector_to_gpu(label_lengths_gpu, label_lengths, stream);
-    cudaStreamSynchronize(stream);
+    vector_to_gpu(label_lengths_gpu, label_lengths);
 
     GpuRNNTWorkspaceManager<float> workspace_manager(acts_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
-    throw_on_error(workspace_manager.create_workspace(stream), "Error: get_workspace_size in infnan_test");
+    throw_on_error(workspace_manager.create_workspace(), "Error: get_workspace_size in infnan_test");
+
+    CUstream stream;
+    cudaStreamCreate(&stream);
 
     GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
 
