@@ -45,7 +45,10 @@ bool run_test(int B, int T, int S, int V) {
         GpuRNNTWorkspaceManager<float> workspace_manager(acts_gpu, labels_gpu, B, lengths_gpu, label_lengths_gpu, V);
         throw_on_error(workspace_manager.create_workspace(), "Error: get_workspace_size in run_test");
 
-        GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0);
+        CUstream stream;
+        cudaStreamCreate(&stream);
+
+        GpuRNNTComputer<float> rnnt_computer(workspace_manager, 0, stream);
 
         auto start = std::chrono::high_resolution_clock::now();
         throw_on_error(rnnt_computer.cost_and_grad(costs.data(), grads_gpu), "Error: rnnt_computer in run_test");
@@ -56,6 +59,8 @@ bool run_test(int B, int T, int S, int V) {
         std::chrono::duration<float> elapsed = end - start;
         time.push_back(elapsed.count() * 1000);
         printf("compute_rnnt_loss elapsed time: %.2f ms\n", elapsed.count() * 1000);
+
+        cudaStreamDestroy(stream);
     }
 
     cudaFree(acts_gpu);

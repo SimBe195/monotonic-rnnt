@@ -108,7 +108,7 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
 
         int fwd_bwd_var_positions = 0;
         for (int b = 0; b < B_h; ++b) {
-            fwd_bwd_var_positions += (T_h[b] + 1 - S_h[b]) * (S_h[b] + 1) - 1;
+            fwd_bwd_var_positions += T_h[b] * (S_h[b] + 1);
         }
 
         return fwd_bwd_var_positions;
@@ -205,8 +205,7 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         int var_start_offsets_host[B_h + 1];
         var_start_offsets_host[0] = 0;
         for (int b = 1; b <= B_h; ++b) {
-            var_start_offsets_host[b] =
-                var_start_offsets_host[b - 1] + ((T_h[b - 1] + 1 - S_h[b - 1]) * (S_h[b - 1] + 1) - 1);
+            var_start_offsets_host[b] = var_start_offsets_host[b - 1] + T_h[b - 1] * (S_h[b - 1] + 1);
         }
 
         int denom_start_indices_host[B_h + 1];

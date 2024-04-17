@@ -119,5 +119,6 @@ def test_size_3() -> None:
 def test_size_4() -> None:
     run_size_test(16, 150, 20, 5000, 10)
 
+
 def test_size_5() -> None:
     run_size_test(2, 391, 300, 79, 1)

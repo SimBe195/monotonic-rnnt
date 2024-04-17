@@ -3,20 +3,9 @@
 
 #include "rnnt_helper.h"
 
-HOSTDEVICE int alpha_idx(const int t, const int s, const int T, const int S) {
-    // see cpu workspace manager for more details
-    // each row has length T + 1 - S except the bottom row which has one less element
-    int sum_below_row = s > 0 ? s * (T + 1 - S) - 1 : 0;
+HOSTDEVICE int alpha_idx(const int t, const int s, const int S) { return t * (S + 1) + s; }
 
-    // The bottom two rows both have no right shift
-    int right_shift = s > 0 ? s - 1 : 0;
-
-    return sum_below_row + t - right_shift;
-}
-
-inline HOSTDEVICE int beta_idx(const int t, const int s, const int T, const int S) {
-    return alpha_idx(T - 1 - t, S - s, T, S);
-}
+inline HOSTDEVICE int beta_idx(const int t, const int s, const int S) { return t * (S + 1) + s; }
 
 template <typename dtype>
 HOSTDEVICE dtype alpha(dtype *alphas, const int t, const int s, const int T, const int S) {
@@ -34,7 +23,7 @@ HOSTDEVICE dtype alpha(dtype *alphas, const int t, const int s, const int T, con
         return rnnt_helper::neg_inf<dtype>();
     }
 
-    return alphas[alpha_idx(t, s, T, S)];
+    return alphas[alpha_idx(t, s, S)];
 }
 
 template <typename dtype>
@@ -53,7 +42,7 @@ HOSTDEVICE dtype beta(dtype *betas, const int t, const int s, const int T, const
         return rnnt_helper::neg_inf<dtype>();
     }
 
-    return betas[beta_idx(t, s, T, S)];
+    return betas[beta_idx(t, s, S)];
 }
 
 inline HOSTDEVICE int alpha_s_min(const int t, const int T, const int S) { return t < T - 1 - S ? 0 : t - (T - 1 - S); }
@@ -100,7 +89,7 @@ __global__ void compute_alphas_kernel_naive(const Tp *const acts, const Tp *cons
                 emit += log_p(acts_b, denom_b, t, s - 1, labels_b[s - 1], S_b, *V);
             }
 
-            alphas_b[alpha_idx(t, s, T_b, S_b)] = rnnt_helper::log_sum_exp(no_emit, emit);
+            alphas_b[alpha_idx(t, s, S_b)] = rnnt_helper::log_sum_exp(no_emit, emit);
         }
     }
 
@@ -133,7 +122,7 @@ __global__ void compute_alphas_kernel(const Tp *const acts, const Tp *const deno
                 emit += log_p(acts_b, denom_b, t, s - 1, labels_b[s - 1], S_b, *V);
             }
 
-            alphas_b[alpha_idx(t, s, T_b, S_b)] = rnnt_helper::log_sum_exp(no_emit, emit);
+            alphas_b[alpha_idx(t, s, S_b)] = rnnt_helper::log_sum_exp(no_emit, emit);
         }
         __syncthreads();
     }
@@ -167,7 +156,7 @@ __global__ void compute_betas_kernel_naive(const Tp *const acts, const Tp *const
             if (s < S_b) {
                 emit += log_p(acts_b, denom_b, t, s, labels_b[s], S_b, *V);
             }
-            betas_b[beta_idx(t, s, T_b, S_b)] = rnnt_helper::log_sum_exp<Tp>(emit, no_emit);
+            betas_b[beta_idx(t, s, S_b)] = rnnt_helper::log_sum_exp<Tp>(emit, no_emit);
         }
     }
 
@@ -200,7 +189,7 @@ __global__ void compute_betas_kernel(const Tp *const acts, const Tp *const denom
                 emit += log_p(acts_b, denom_b, t, s, labels_b[s], S_b, *V);
             }
 
-            betas_b[beta_idx(t, s, T_b, S_b)] = rnnt_helper::log_sum_exp(no_emit, emit);
+            betas_b[beta_idx(t, s, S_b)] = rnnt_helper::log_sum_exp(no_emit, emit);
         }
 
         __syncthreads();

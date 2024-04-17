@@ -1,4 +1,5 @@
 #ifdef RNNT_ENABLE_GPU
+#define EIGEN_USE_GPU
 
 #include "gpu_rnnt.h"
 #include "gpu_workspace_manager.h"
@@ -164,10 +165,8 @@ class MonotonicRNNTOpGPU : public MonotonicRNNTOpBase {
     }
 
     RNNTOptions create_options(tf::OpKernelContext *ctx) override {
-        CUstream cuda_stream;
-        cudaStreamCreate(&cuda_stream);
         auto options = RNNTOptions{};
-        options.stream = cuda_stream;
+        options.stream = ctx->eigen_device<Eigen::GpuDevice>().stream();
         return options;
     }
 };
