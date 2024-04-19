@@ -21,11 +21,11 @@ two most recent symbols). For simplicity, $x_1^T$ will be omitted from the depen
 
 The loss and gradients can be computed using the forward-backward-algorithm. For this, a forward variable
 
-$$\alpha(t, s) = \sum_{y_1^t : a_1^s} \prod{t'=1}^t p_{t'}(y_{t'} \mid a(y_1^{t'-1}))$$
+$$\alpha(t, s) = \sum_{y_1^t : a_1^s} \prod_{t'=1}^t p_{t'}(y_{t'} \mid a(y_1^{t'-1}))$$
 
 and a backward variable
 
-$$\beta(t, s) = \sum_{y_t^T : a_s^S} \prod{t'=t}^T p_{t'}(y_{t'} \mid a(a_1^s || y_{t'}^T))$$
+$$\beta(t, s) = \sum_{y_t^T : a_s^S} \prod_{t'=t}^T p_{t'}(y_{t'} \mid a(a_1^s || y_{t'}^T))$$
 
 are introduced. These have the property
 
@@ -33,11 +33,11 @@ $$L = -\log \alpha(T, S) = -\log \beta(1, 0)$$
 
 and adhere to the recursive equations
 
-$$\alpha(t, s) = p_t(\epsilon \mid a(a_1^s)) \alpha(t-1, s) + p_t(a_s \mid a(a_1^{s-1})) \alpha(t-1, s-1)$$
+$$\alpha(t, s) = p_t(\epsilon \mid a(a_1^s)) \cdot \alpha(t-1, s) + p_t(a_s \mid a(a_1^{s-1})) \cdot \alpha(t-1, s-1)$$
 
 and
 
-$$\beta(t, s) = p_t(\epsilon \mid a(a_1^s)) \beta(t+1, s) + p_t(a_{s+1} \mid a(a_1^s)) \beta(t+1, s+1)$$
+$$\beta(t, s) = p_t(\epsilon \mid a(a_1^s)) \cdot \beta(t+1, s) + p_t(a_{s+1} \mid a(a_1^s)) \cdot \beta(t+1, s+1)$$
 
 (excluding edge cases).
 
@@ -45,35 +45,27 @@ $$\beta(t, s) = p_t(\epsilon \mid a(a_1^s)) \beta(t+1, s) + p_t(a_{s+1} \mid a(a
 
 For the gradients it is straightforward to prove that for any $t$
 
-$$p(a_1^S) = \sum_{s=0}^S \alpha(t, s) \beta(t + 1, s)$$
+$$p(a_1^S) = \sum_{s=0}^S \alpha(t, s) \cdot \beta(t + 1, s)$$
 
 And thus
 $$\frac{\partial p(a_1^S)}{\partial p_t(y \mid a(a_1^s))}$$
 
-$$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'=0}^S \alpha(t, s') \beta(t+1, s'))$$
+$$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'=0}^S \alpha(t, s') \cdot \beta(t+1, s') \right)$$
 
-$$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'=0}^S (p_t(\epsilon \mid a(a_1^{s'})) \alpha(t-1, s') +
-p_t(a_{s'} \mid a(a_1^{s'-1})) \alpha(t-1, s'-1)) \beta(t+1, s'))$$
+$$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'=0}^S \left( p_t(\epsilon \mid a(a_1^{s'})) \cdot \alpha(t-1, s') +
+p_t(a_{s'} \mid a(a_1^{s'-1})) \cdot \alpha(t-1, s'-1)\right) \cdot \beta(t+1, s') \right)$$
 
-if $y = \epsilon$:
-
-$$= \alpha(t-1, s) \beta(t+1, s)$$
-
-if $y = a_{s+1}$:
-
-$$= \alpha(t-1, s) \beta(t+1, s+1)$$
-
-and $0$ otherwise.
+$= \alpha(t-1, s) \cdot \beta(t+1, s)$ if $y = \epsilon$
+$= \alpha(t-1, s) \cdot \beta(t+1, s+1)$ if $y = a_{s+1}$ and
+$= 0$ otherwise.
 
 which means for the overall gradient
 
 $$\frac{\partial L}{\partial p_t(y \mid a(a_1^s))}$$
 
-$$= - \frac{\alpha(t-1, s) \beta(t+1, s)}{p(a_1^S)}$$ if $y = \epsilon$
-
-$$= - \frac{\alpha(t-1, s) \beta(t+1, s+1)}{p(a_1^S)}$$ if $y = a_{s+1}$
-
-$$= 0$$ otherwise.
+$= - \frac{\alpha(t-1, s) \cdot \beta(t+1, s)}{p(a_1^S)}$ if $y = \epsilon$
+$= - \frac{\alpha(t-1, s) \cdot \beta(t+1, s+1)}{p(a_1^S)}$ if $y = a_{s+1}$
+$= 0$ otherwise.
 
 For expressing the derivative directly with respect to the logits $z_1^V$ where
 $p_t(y \mid a(a_1^s)) = \frac{e^{z_y}}{\sum_{v=1}^V e^{z_v}}$
@@ -81,13 +73,9 @@ we can derive with some calculation that
 
 $$\frac{\partial L}{\partial z_y}$$
 
-$$= - \frac{\alpha(t-1, s) p(\epsilon \mid a(a_1^s)) \left(\beta(t+1, s) - \beta(t, s) \right)}{p(a_1^S)}$$ if $y =
-\epsilon$
-
-$$= - \frac{\alpha(t-1, s) p(\epsilon \mid a(a_1^s)) \left(\beta(t+1, s+1) - \beta(t, s) \right)}{p(a_1^S)}$$ if $y = a_
-{s+1}$
-
-$$= - \frac{\alpha(t-1, s) p(\epsilon \mid a(a_1^s)) \left(-\beta(t, s)\right)}{p(a_1^S)}$$ otherwise
+$= - \frac{\alpha(t-1, s) \cdot p(\epsilon \mid a(a_1^s)) \left(\beta(t+1, s) - \beta(t, s) \right)}{p(a_1^S)}$ if $y =\epsilon$
+$= - \frac{\alpha(t-1, s) \cdot p(\epsilon \mid a(a_1^s)) \left(\beta(t+1, s+1) - \beta(t, s) \right)}{p(a_1^S)}$ if $y = a_{s+1}$
+$= - \frac{\alpha(t-1, s) \cdot p(\epsilon \mid a(a_1^s)) \left(-\beta(t, s)\right)}{p(a_1^S)}$ otherwise
 
 ## Example
 
@@ -132,7 +120,7 @@ The 6 paths have probabilities of
 - 0.3 * 0.5 * 0.4 * 0.8 = 0.0480
 - 0.3 * 0.4 * 0.7 * 0.8 = 0.0672
 
-wich sum to a total of 0.363, i.e. 1.0134 in negative log space
+wich sum to a total of 0.363, i.e. -1.0134 in log space
 
 The alphas then are as follows in probability and log space:
 
