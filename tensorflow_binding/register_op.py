@@ -16,7 +16,7 @@ def register_op(library_path: str) -> None:
     _monotonic_rnnt = tf.load_op_library(library_path)
 
 
-def rnnt_loss(
+def monotonic_rnnt_loss(
     acts: tf.Tensor,
     labels: tf.Tensor,
     input_lengths: tf.Tensor,

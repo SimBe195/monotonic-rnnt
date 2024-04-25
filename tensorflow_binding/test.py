@@ -6,7 +6,7 @@ from _pytest.config import Notset
 import pytest
 import tensorflow as tf
 
-from tensorflow_binding.register_op import register_op, rnnt_loss
+from tensorflow_binding.register_op import register_op, monotonic_rnnt_loss
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -46,7 +46,7 @@ def test_cost_grad_values() -> None:
 
     with tf.GradientTape() as g:
         g.watch(acts)
-        costs = rnnt_loss(acts, labels, lengths, label_lengths)  # type: ignore
+        costs = monotonic_rnnt_loss(acts, labels, lengths, label_lengths)  # type: ignore
     cost = costs.numpy()[0]  # type: ignore
     grads = g.gradient(costs, acts)
 
@@ -87,7 +87,7 @@ def run_size_test(B: int, T: int, S: int, V: int, num_iters: int = 1) -> None:
         g.watch(acts)
         for _ in range(num_iters):
             start = time.perf_counter()
-            costs = rnnt_loss(acts, labels, lengths, label_lengths)  # type: ignore
+            costs = monotonic_rnnt_loss(acts, labels, lengths, label_lengths)  # type: ignore
             elapsed = time.perf_counter() - start
             times.append(elapsed * 1000)
 
@@ -105,15 +105,15 @@ def run_size_test(B: int, T: int, S: int, V: int, num_iters: int = 1) -> None:
 
 
 def test_size_1() -> None:
-    run_size_test(1, 150, 20, 50, 10)
+    run_size_test(1, 150, 20, 50, 20)
 
 
 def test_size_2() -> None:
-    run_size_test(1, 150, 20, 5000, 10)
+    run_size_test(1, 150, 20, 5000, 20)
 
 
 def test_size_3() -> None:
-    run_size_test(16, 150, 20, 50, 10)
+    run_size_test(16, 150, 20, 50, 20)
 
 
 def test_size_4() -> None:

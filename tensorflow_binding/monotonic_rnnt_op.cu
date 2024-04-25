@@ -1,6 +1,8 @@
 #ifdef RNNT_ENABLE_GPU
 #define EIGEN_USE_GPU
 
+#define EIGEN_USE_GPU
+#include <cuda.h>
 #include "gpu_rnnt.h"
 #include "gpu_workspace_manager.h"
 
