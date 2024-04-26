@@ -1,12 +1,23 @@
+import os
 import torch
 from torch.utils.cpp_extension import load
 
-monotonic_rnnt_cpp = load(name="monotonic_rnnt_cpp", sources=["pytorch_binding/monotonic_rnnt.cu"], extra_cflags=["-DRNNT_ENABLE_GPU", "-O2"], extra_include_paths=["include/"])
+current_file_path = os.path.abspath(__file__)
+current_directory = os.path.dirname(current_file_path)
+
+monotonic_rnnt_cpp = load(
+    name="monotonic_rnnt_cpp",
+    sources=[f"{current_directory}/monotonic_rnnt.cu"],
+    extra_cuda_cflags=["-DRNNT_ENABLE_GPU", "-O2"],
+    extra_include_paths=[f"{current_directory}/../include/"],
+    verbose=True,
+)
+
 
 class MonotonicRNNTFunction(torch.autograd.Function):
     @staticmethod
     def forward(
-        ctx, 
+        ctx,
         acts: torch.Tensor,
         labels: torch.Tensor,
         input_lengths: torch.Tensor,
@@ -14,23 +25,25 @@ class MonotonicRNNTFunction(torch.autograd.Function):
         blank_label: int = 0,
     ) -> torch.Tensor:
         assert monotonic_rnnt_cpp is not None
-        is_cuda = acts.is_cuda
-        loss_func = monotonic_rnnt_cpp.gpu_monotonic_rnnt if is_cuda else monotonic_rnnt_cpp.cpu_monotonic_rnnt
-        grads = torch.zeros_like(acts) if acts.requires_grad else torch.zeros(0).to(acts)
-        costs = torch.zeros(labels.size(0), dtype=acts.dtype)
+
+        loss_func = (
+            monotonic_rnnt_cpp.gpu_monotonic_rnnt
+            if acts.is_cuda
+            else monotonic_rnnt_cpp.cpu_monotonic_rnnt
+        )
+        grads = (
+            torch.zeros_like(acts, device=acts.device)
+            if acts.requires_grad
+            else torch.zeros(0, dtype=acts.dtype, device=acts.device)
+        )
+        costs = torch.zeros(labels.size(0), dtype=acts.dtype, device="cpu")
 
         loss_func(
-            acts,
-            labels,
-            input_lengths,
-            label_lengths,
-            costs,
-            grads,
-            blank_label,
-            0
+            acts, labels, input_lengths, label_lengths, costs, grads, blank_label, 0
         )
 
-        costs = costs.to(acts.device)
+        costs = costs.to(device=acts.device)
+
         ctx.save_for_backward(grads, input_lengths, label_lengths)
 
         return costs
@@ -58,7 +71,6 @@ class MonotonicRNNTFunction(torch.autograd.Function):
         # [T_1*(S_1+1) + T_2*(S_2+1) + ... + T_B*(S_B+1), 1]
         grad_outputs = grad_outputs * grad
         return grad_outputs, None, None, None, None
-
 
 
 def monotonic_rnnt_loss(
@@ -91,9 +103,12 @@ def monotonic_rnnt_loss(
     * This class performs the softmax operation internally.
     """
 
-    result = MonotonicRNNTFunction.apply(acts, labels, input_lengths, label_lengths, blank_label)
+    result = MonotonicRNNTFunction.apply(
+        acts, labels, input_lengths, label_lengths, blank_label
+    )
     assert result is not None
     return result
+
 
 class MonotonicRNNTLoss(torch.nn.Module):
     """Computes the RNNT loss between a sequence of activations and a
@@ -102,12 +117,19 @@ class MonotonicRNNTLoss(torch.nn.Module):
         blank_label:     the label value/index that the RNNT calculation should use as the blank label
     * This module performs the softmax operation internally.
     """
+
     def __init__(self, blank: int = 0) -> None:
         super().__init__()
         self.blank = blank
         self.loss = MonotonicRNNTFunction.apply
 
-    def forward(self, acts: torch.Tensor, labels: torch.Tensor, input_lengths: torch.Tensor, label_lengths: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        acts: torch.Tensor,
+        labels: torch.Tensor,
+        input_lengths: torch.Tensor,
+        label_lengths: torch.Tensor,
+    ) -> torch.Tensor:
         """
         Args:
             acts:            A packed 2-D Tensor of logits*. The dimensions should be
@@ -130,4 +152,3 @@ class MonotonicRNNTLoss(torch.nn.Module):
         loss = self.loss(acts, labels, input_lengths, label_lengths, self.blank)
         assert loss is not None
         return loss
-
