@@ -6,11 +6,7 @@
 
 The monotonic RNN-T loss can be written as
 
-$$L = -\log p(a_1^S \mid x_1^T)$$
-
-$$L = -\log \sum_{y_1^T : a_1^S} p(y_1^T \mid x_1^T)$$
-
-$$L = -\log \sum_{y_1^T : a_1^S} \prod_{t=1}^T p_t(y_t \mid x_1^T, a(y_1^{t-1}))$$
+$$L = -\log p(a_1^S \mid x_1^T) = -\log \sum_{y_1^T : a_1^S} p(y_1^T \mid x_1^T) = -\log \sum_{y_1^T : a_1^S} \prod_{t=1}^T p_t(y_t \mid x_1^T, a(y_1^{t-1}))$$
 
 where $S$ is the number of labels, $T$ is the number of time-steps, $a_1^S$ is the ground-truth label sequence, $x_1^T$
 are the acoustic features, $y_1^T$ is the set of alignments of $a_1^S$ as a result of inserting blank symbols and $a(
@@ -48,33 +44,40 @@ For the gradients it is straightforward to prove that for any $t$
 $$p(a_1^S) = \sum_{s=0}^S \alpha(t, s) \cdot \beta(t + 1, s)$$
 
 And thus
-$$\frac{\partial p(a_1^S)}{\partial p_t(y \mid a(a_1^s))}$$
 
-$$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'=0}^S \alpha(t, s') \cdot \beta(t+1, s') \right)$$
+$\frac{\partial p(a_1^S)}{\partial p_t(y \mid a(a_1^s))}$
 
-$$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'=0}^S \left( p_t(\epsilon \mid a(a_1^{s'})) \cdot \alpha(t-1, s') +
-p_t(a_{s'} \mid a(a_1^{s'-1})) \cdot \alpha(t-1, s'-1)\right) \cdot \beta(t+1, s') \right)$$
+$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'} \alpha(t, s') \cdot \beta(t+1, s') \right)$
+
+$=\frac{\partial}{\partial p_t(y \mid a_1^s)} \left( \sum_{s'} \left( p_t(\epsilon \mid a(a_1^{s'})) \cdot \alpha(t-1, s') +
+p_t(a_{s'} \mid a(a_1^{s'-1})) \cdot \alpha(t-1, s'-1)\right) \cdot \beta(t+1, s') \right)$
 
 $= \alpha(t-1, s) \cdot \beta(t+1, s)$ if $y = \epsilon$
+
 $= \alpha(t-1, s) \cdot \beta(t+1, s+1)$ if $y = a_{s+1}$ and
+
 $= 0$ otherwise.
 
 which means for the overall gradient
 
-$$\frac{\partial L}{\partial p_t(y \mid a(a_1^s))}$$
+$\frac{\partial L}{\partial p_t(y \mid a(a_1^s))}$
 
 $= - \frac{\alpha(t-1, s) \cdot \beta(t+1, s)}{p(a_1^S)}$ if $y = \epsilon$
+
 $= - \frac{\alpha(t-1, s) \cdot \beta(t+1, s+1)}{p(a_1^S)}$ if $y = a_{s+1}$
+
 $= 0$ otherwise.
 
 For expressing the derivative directly with respect to the logits $z_1^V$ where
-$p_t(y \mid a(a_1^s)) = \frac{e^{z_y}}{\sum_{v=1}^V e^{z_v}}$
+$p_t(y \mid a(a_1^s)) = \frac{e^{z_y}}{\sum_v e^{z_v}}$
 we can derive with some calculation that
 
-$$\frac{\partial L}{\partial z_y}$$
+$\frac{\partial L}{\partial z_y}$
 
 $= - \frac{\alpha(t-1, s) \cdot p(\epsilon \mid a(a_1^s)) \left(\beta(t+1, s) - \beta(t, s) \right)}{p(a_1^S)}$ if $y =\epsilon$
+
 $= - \frac{\alpha(t-1, s) \cdot p(\epsilon \mid a(a_1^s)) \left(\beta(t+1, s+1) - \beta(t, s) \right)}{p(a_1^S)}$ if $y = a_{s+1}$
+
 $= - \frac{\alpha(t-1, s) \cdot p(\epsilon \mid a(a_1^s)) \left(-\beta(t, s)\right)}{p(a_1^S)}$ otherwise
 
 ## Example
