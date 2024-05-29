@@ -11,14 +11,13 @@ import os
 from returnn.tf.util.basic import OpCodeCompiler
 
 
-monotonic_rnnt_dir = os.path.dirname(os.path.abspath(__file__) + "/../..")
-submodule_dir = os.path.join(monotonic_rnnt_dir, "monotonic_rnnt")
+tensorflow_binding_dir = os.path.dirname(os.path.abspath(__file__))
 _tf_mod = None
 
 
 def is_checked_out():
     """Checks if the git submodule is checkout out."""
-    return os.path.isfile(f"{submodule_dir}/tensorflow_binding/monotonic_rnnt_op.cu")
+    return os.path.isfile(f"{tensorflow_binding_dir}/monotonic_rnnt_op.cu")
 
 
 def init_monotonic_rnnt(verbose=False):
@@ -44,7 +43,7 @@ def init_monotonic_rnnt(verbose=False):
         )
 
     src_files = [
-        f"{submodule_dir}/tensorflow_binding/monotonic_rnnt_op.cu",
+        f"{tensorflow_binding_dir}/monotonic_rnnt_op.cu",
     ]
     assert all(
         [os.path.isfile(f) for f in src_files]
@@ -72,7 +71,7 @@ def init_monotonic_rnnt(verbose=False):
         base_name="monotonic_rnnt_kernels",
         code_version=1,
         code=src_code,
-        include_paths=(f"{submodule_dir}/include",),
+        include_paths=(f"{tensorflow_binding_dir}/../include",),
         c_macro_defines={"RNNT_ENABLE_GPU": enable_gpu},
         ld_flags=["-Xcompiler", "-fopenmp"],
         is_cpp=True,
@@ -90,7 +89,7 @@ Copied from monotonic-rnnt/tensorflow_binding/register_op.py
 """
 
 
-def rnnt_loss(
+def monotonic_rnnt_loss(
     acts: tf.Tensor,
     labels: tf.Tensor,
     input_lengths: tf.Tensor,
