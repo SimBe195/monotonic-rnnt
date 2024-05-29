@@ -182,7 +182,7 @@ class CpuRNNTComputer {
         return loglikelihood;
     }
 
-    ProbT compute_betas_and_grad_kernel(int b, ProbT *grad) {
+    ProbT compute_betas_kernel(int b) {
         for (int t = workspace_manager_.T(b) - 1; t >= 0; --t) {
             for (int s = workspace_manager_.beta_s_min(b, t); s <= workspace_manager_.beta_s_max(b, t); ++s) {
                 ProbT no_emit = workspace_manager_.get_beta(b, t + 1, s) + workspace_manager_.act(b, t, s, blank_) +
@@ -210,6 +210,10 @@ class CpuRNNTComputer {
 
         ProbT loglikelihood = workspace_manager_.get_beta(b, 0, 0);
 
+        return loglikelihood;
+    }
+
+    void compute_grad_kernel(ProbT loglikelihood, int b, ProbT *grad) {
         // Gradients w.r.t. logits
         for (int t = 0; t < workspace_manager_.T(b); ++t) {
             for (int s = 0; s <= workspace_manager_.S(b); ++s) {
@@ -245,17 +249,15 @@ class CpuRNNTComputer {
         }
         printf("\n");
 #endif
-
-        return loglikelihood;
     }
 
     ProbT cost_and_grad_kernel(int b, ProbT *grad) {
         ProbT llForward = compute_alphas_kernel(b);
-        ProbT llBackward = compute_betas_and_grad_kernel(b, grad);
-
+        ProbT llBackward = compute_betas_kernel(b);
         if (std::abs(llForward - llBackward) > 1e-1) {
             printf("WARNING: Forward backward likelihood mismatch: %f vs. %f\n", llForward, llBackward);
         }
+        compute_grad_kernel(llForward, b, grad);
 
         return -llForward;
     }
