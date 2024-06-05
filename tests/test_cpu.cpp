@@ -42,7 +42,7 @@ bool fwd_test() {
     };
 
     std::vector<float> logits(probs.size());
-    std::transform(probs.begin(), probs.end(), logits.begin(), log);
+    std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
     CpuRNNTWorkspaceManager<float> workspace_manager(logits.data(), labels.data(), B, lengths.data(),
                                                      label_lengths.data(), V);
@@ -92,7 +92,7 @@ bool bwd_test() {
     };
 
     std::vector<float> logits(probs.size());
-    std::transform(probs.begin(), probs.end(), logits.begin(), log);
+    std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
     CpuRNNTWorkspaceManager<float> workspace_manager(logits.data(), labels.data(), B, lengths.data(),
                                                      label_lengths.data(), V);
@@ -146,7 +146,7 @@ bool grads_test() {
     };
 
     std::vector<float> logits(probs.size());
-    std::transform(probs.begin(), probs.end(), logits.begin(), log);
+    std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
     CpuRNNTWorkspaceManager<float> workspace_manager(logits.data(), labels.data(), B, lengths.data(),
                                                      label_lengths.data(), V);
@@ -233,7 +233,7 @@ bool multibatch_test() {
     };
 
     std::vector<float> logits(probs.size());
-    std::transform(probs.begin(), probs.end(), logits.begin(), log);
+    std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
     CpuRNNTWorkspaceManager<float> workspace_manager(logits.data(), labels.data(), B, lengths.data(),
                                                      label_lengths.data(), V);
@@ -368,7 +368,7 @@ bool align_restrict_test() {
     std::vector<int> alignment = {0, 1, 0, 2};
 
     std::vector<float> logits(probs.size());
-    std::transform(probs.begin(), probs.end(), logits.begin(), log);
+    std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
     CpuRNNTWorkspaceManager<float> workspace_manager(logits.data(), labels.data(), B, lengths.data(),
                                                      label_lengths.data(), V);
@@ -495,7 +495,7 @@ bool align_restrict_multibatch_test() {
     std::vector<int> alignment = {0, 1, 0, 2, 1, 2, 0, 0};
 
     std::vector<float> logits(probs.size());
-    std::transform(probs.begin(), probs.end(), logits.begin(), log);
+    std::transform(probs.begin(), probs.end(), logits.begin(), [](float v) { return std::log(v); });
 
     CpuRNNTWorkspaceManager<float> workspace_manager(logits.data(), labels.data(), B, lengths.data(),
                                                      label_lengths.data(), V);

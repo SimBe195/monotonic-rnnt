@@ -3,7 +3,8 @@ project(monotonic_rnnt LANGUAGES CXX CUDA)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
 
-include_directories(include)
+set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+include_directories(${INCLUDE_DIR})
 
 option(USE_NAIVE_KERNEL "use naive alpha-beta kernel" OFF)
 option(DEBUG_TIME "output kernel time" OFF)
@@ -68,6 +69,8 @@ if (WITH_GPU)
     list(APPEND CMAKE_CUDA_ARCHITECTURES 89 90)
   endif ()
   message(STATUS "Compiling with compute capabilities ${CMAKE_CUDA_ARCHITECTURES}")
+
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -I${INCLUDE_DIR}")
 
   add_library(monotonic_rnnt SHARED src/rnnt_entrypoint.cu)
 

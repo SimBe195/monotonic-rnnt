@@ -37,8 +37,11 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
           T(T),
           S(S),
           S_max(nullptr),
+          T_max(nullptr),
           V_h(V),
           V(nullptr),
+          min_allowed_s(nullptr),
+          max_allowed_s(nullptr),
           acts(acts),
           labels(labels),
           denom_start_indices(nullptr),
@@ -69,10 +72,14 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
     dtype *alphas;  // workspace
     dtype *betas;   // workspace
 
+    int *min_allowed_s;  // workspace
+    int *max_allowed_s;  // workspace
+
     int *denom_start_indices;  // workspace
     int *var_start_offsets;    // workspace
 
     int *S_max;  // workspace
+    int *T_max;  // workspace
 
     dtype *ll_forward;   // workspace
     dtype *ll_backward;  // workspace
@@ -114,55 +121,91 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         return fwd_bwd_var_positions;
     }
 
-    [[nodiscard]] std::vector<int> var_start_offsets_host() {
+    [[nodiscard]] std::vector<int> var_start_offsets_host() const {
         std::vector<int> var_start_offsets_h(B_h);
         cudaMemcpy(var_start_offsets_h.data(), var_start_offsets, sizeof(int) * var_start_offsets_h.size(),
                    cudaMemcpyDeviceToHost);
         return var_start_offsets_h;
     }
 
-    [[nodiscard]] std::vector<dtype> acts_host() {
+    [[nodiscard]] std::vector<dtype> acts_host() const {
         std::vector<dtype> acts_h(num_denoms() * V_host());
         cudaMemcpy(acts_h.data(), acts, dtype_size_ * acts_h.size(), cudaMemcpyDeviceToHost);
         return acts_h;
     }
 
-    [[nodiscard]] std::vector<dtype> denom_host() {
+    [[nodiscard]] std::vector<dtype> denom_host() const {
         std::vector<dtype> denom_h(num_denoms());
         cudaMemcpy(denom_h.data(), denom, dtype_size_ * denom_h.size(), cudaMemcpyDeviceToHost);
         return denom_h;
     }
 
-    [[nodiscard]] std::vector<dtype> alphas_host() {
+    [[nodiscard]] std::vector<dtype> alphas_host() const {
         std::vector<dtype> alphas_h(num_fwd_bwd_var_positions());
         cudaMemcpy(alphas_h.data(), alphas, dtype_size_ * alphas_h.size(), cudaMemcpyDeviceToHost);
         return alphas_h;
     }
 
-    [[nodiscard]] std::vector<dtype> betas_host() {
+    [[nodiscard]] std::vector<dtype> betas_host() const {
         std::vector<dtype> betas_h(num_fwd_bwd_var_positions());
         cudaMemcpy(betas_h.data(), betas, dtype_size_ * betas_h.size(), cudaMemcpyDeviceToHost);
         return betas_h;
     }
 
-    [[nodiscard]] int S_max_host() {
+    [[nodiscard]] int S_max_host() const {
         int S_max_h;
         cudaMemcpy(&S_max_h, S_max, sizeof(int), cudaMemcpyDeviceToHost);
         return S_max_h;
     }
 
-    [[nodiscard]] std::vector<dtype> ll_forward_host() {
+    [[nodiscard]] int T_max_host() const {
+        int T_max_h;
+        cudaMemcpy(&T_max_h, T_max, sizeof(int), cudaMemcpyDeviceToHost);
+        return T_max_h;
+    }
+
+    [[nodiscard]] std::vector<dtype> ll_forward_host() const {
         std::vector<dtype> ll_forward_h(B_h);
         cudaMemcpy(ll_forward_h.data(), ll_forward, dtype_size_ * B_h, cudaMemcpyDeviceToHost);
         return ll_forward_h;
     }
 
-    [[nodiscard]] std::vector<dtype> ll_backward_host() {
+    [[nodiscard]] std::vector<dtype> ll_backward_host() const {
         std::vector<dtype> ll_backward_h(B_h);
         cudaMemcpy(ll_backward_h.data(), ll_backward, dtype_size_ * B_h, cudaMemcpyDeviceToHost);
         return ll_backward_h;
     }
 
+    void restrict_to_alignment(const int *const alignments, int max_shift, int blank_idx) {
+        auto T_h = T_host();
+        int B_h = B_host();
+        int T_max_h = T_max_host();
+
+        std::vector<int> alignments_h(B_h * T_max_h);
+        std::vector<int> min_allowed_s_h(B_h * T_max_h);
+        std::vector<int> max_allowed_s_h(B_h * T_max_h);
+
+        cudaMemcpy(alignments_h.data(), alignments, sizeof(int) * alignments_h.size(), cudaMemcpyDeviceToHost);
+
+        for (int b = 0; b < B_h; ++b) {
+            std::vector<int> s_index_mapping(T_h[b] + 1, 0);
+            for (int t = 0; t < T_h[b]; ++t) {
+                if (alignments_h[b * T_max_h + t] == blank_idx) {
+                    s_index_mapping[t + 1] = s_index_mapping[t];
+                } else {
+                    s_index_mapping[t + 1] = s_index_mapping[t] + 1;
+                }
+            }
+            for (int t = 0; t < T_h[b]; ++t) {
+                min_allowed_s_h[b * T_max_h + t] = s_index_mapping[std::max(0, t + 1 - max_shift)];
+                max_allowed_s_h[b * T_max_h + t] = s_index_mapping[std::min(T_h[b], t + 1 + max_shift)];
+            }
+        }
+
+        cudaMemcpy(min_allowed_s, min_allowed_s_h.data(), sizeof(int) * min_allowed_s_h.size(), cudaMemcpyHostToDevice);
+        cudaMemcpy(max_allowed_s, max_allowed_s_h.data(), sizeof(int) * max_allowed_s_h.size(), cudaMemcpyHostToDevice);
+    }
+  
     /**
      * Calculate required memory for denominator, alphas and betas.
      * This memory needs to be allocated externally.
@@ -173,6 +216,7 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
     RNNTStatus get_workspace_size(size_t *size_bytes) const {
         auto T_h = T_host();
         auto S_h = S_host();
+        int T_max_h = T_max_host();
 
         if (B_h <= 0) {
             return RNNT_STATUS_INVALID_VALUE;
@@ -187,7 +231,8 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
                       + 2 * dtype_size_ * num_fwd_bwd_var_positions()  // alpha+beta
                       + 2 * B_h * sizeof(int)                          // var_start_offsets + denom_start_indices
                       + 2 * B_h * dtype_size_                          // ll_forward + ll_backward
-                      + 3 * sizeof(int);                               // B, V, S_max
+                      + 2 * B_h * T_max_h * sizeof(int)                // min/max allowed s
+                      + 4 * sizeof(int);                               // B, V, S_max, T_max
 
 #ifdef DEBUG_SPACE
         printf("Reserve %.3f mb of memory for computations\n", static_cast<float>(*size_bytes) / 1e6);
@@ -249,7 +294,26 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
 
         int S_max_h = *std::max_element(S_h.begin(), S_h.end());
         S_max = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
+        current_offset += sizeof(int);
         cudaMemcpy(S_max, &S_max_h, sizeof(int), cudaMemcpyHostToDevice);
+
+        int T_max_h = *std::max_element(T_h.begin(), T_h.end());
+        T_max = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
+        current_offset += sizeof(int);
+        cudaMemcpy(T_max, &T_max_h, sizeof(int), cudaMemcpyHostToDevice);
+
+        std::vector<int> min_allowed_s_h(B_h * T_max_h, 0);
+        min_allowed_s = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
+        current_offset += sizeof(int) * min_allowed_s_h.size();
+        cudaMemcpy(min_allowed_s, min_allowed_s_h.data(), sizeof(int) * min_allowed_s_h.size(), cudaMemcpyHostToDevice);
+    
+        std::vector<int> max_allowed_s_h(B_h * T_max_h);
+        for (int b = 0; b < B_h; ++b) {
+            std::fill_n(max_allowed_s_h.begin() + b * T_max_h, T_max_h, S_h[b]);
+        }
+        max_allowed_s = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
+        current_offset += sizeof(int) * max_allowed_s_h.size();
+        cudaMemcpy(max_allowed_s, max_allowed_s_h.data(), sizeof(int) * max_allowed_s_h.size(), cudaMemcpyHostToDevice);
     }
 
     RNNTStatus create_workspace() {
