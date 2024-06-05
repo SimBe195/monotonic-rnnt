@@ -95,7 +95,6 @@ def monotonic_rnnt_loss(
     input_lengths: tf.Tensor,
     label_lengths: tf.Tensor,
     blank_label: int = 0,
-    input_type: str = "logit",
 ) -> tf.Tensor:
     """Computes the RNNT loss between a sequence of activations and a
     ground truth labeling.
@@ -114,7 +113,6 @@ def monotonic_rnnt_loss(
         label_lengths:   A 1-D Tensor of ints, [S_1, S_2, ..., S_B], the length of each label sequence for each example
                          in the minibatch.
         blank_label:     the label value/index that the RNNT calculation should use as the blank label
-        input_type:      has to be "logit", added for legacy compatibility
     Returns:
         1-D float Tensor of shape [B], the cost of each example in the minibatch
         (as negative log probabilities).
@@ -123,7 +121,6 @@ def monotonic_rnnt_loss(
     assert (
         _tf_mod is not None
     ), "Call `init_monotonic_rnnt` to register the operation before calling `rnnt_loss`."
-    assert input_type == "logit"
     loss, _ = _tf_mod.monotonic_rnnt(
         acts,
         labels,
