@@ -1,6 +1,7 @@
 #ifndef MONOTONIC_RNNT_GPU_WORKSPACE_MANAGER_H
 #define MONOTONIC_RNNT_GPU_WORKSPACE_MANAGER_H
 
+#include <cstdio>
 #ifdef DEBUG_SPACE
 #include <stdio.h>
 #endif
@@ -8,7 +9,6 @@
 #include <algorithm>
 #include <vector>
 
-#include "options.h"
 #include "status.h"
 #include "workspace_manager.h"
 
@@ -164,6 +164,18 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         return T_max_h;
     }
 
+    [[nodiscard]] std::vector<int> min_allowed_s_host() const {
+        std::vector<int> min_allowed_s_h(T_max_host() * B_host());
+        cudaMemcpy(min_allowed_s_h.data(), min_allowed_s, sizeof(int) * min_allowed_s_h.size(), cudaMemcpyDeviceToHost);
+        return min_allowed_s_h;
+    }
+
+    [[nodiscard]] std::vector<int> max_allowed_s_host() const {
+        std::vector<int> max_allowed_s_h(T_max_host() * B_host());
+        cudaMemcpy(max_allowed_s_h.data(), max_allowed_s, sizeof(int) * max_allowed_s_h.size(), cudaMemcpyDeviceToHost);
+        return max_allowed_s_h;
+    }
+
     [[nodiscard]] std::vector<dtype> ll_forward_host() const {
         std::vector<dtype> ll_forward_h(B_h);
         cudaMemcpy(ll_forward_h.data(), ll_forward, dtype_size_ * B_h, cudaMemcpyDeviceToHost);
@@ -205,7 +217,7 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         cudaMemcpy(min_allowed_s, min_allowed_s_h.data(), sizeof(int) * min_allowed_s_h.size(), cudaMemcpyHostToDevice);
         cudaMemcpy(max_allowed_s, max_allowed_s_h.data(), sizeof(int) * max_allowed_s_h.size(), cudaMemcpyHostToDevice);
     }
-  
+
     /**
      * Calculate required memory for denominator, alphas and betas.
      * This memory needs to be allocated externally.
@@ -216,7 +228,6 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
     RNNTStatus get_workspace_size(size_t *size_bytes) const {
         auto T_h = T_host();
         auto S_h = S_host();
-        int T_max_h = T_max_host();
 
         if (B_h <= 0) {
             return RNNT_STATUS_INVALID_VALUE;
@@ -226,6 +237,7 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
                 return RNNT_STATUS_INVALID_VALUE;
             }
         }
+        int T_max_h = *std::max_element(T_h.begin(), T_h.end());
 
         *size_bytes = dtype_size_ * num_denoms()                       // denom
                       + 2 * dtype_size_ * num_fwd_bwd_var_positions()  // alpha+beta
@@ -306,7 +318,7 @@ class GpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         min_allowed_s = reinterpret_cast<int *>(static_cast<char *>(workspace) + current_offset);
         current_offset += sizeof(int) * min_allowed_s_h.size();
         cudaMemcpy(min_allowed_s, min_allowed_s_h.data(), sizeof(int) * min_allowed_s_h.size(), cudaMemcpyHostToDevice);
-    
+
         std::vector<int> max_allowed_s_h(B_h * T_max_h);
         for (int b = 0; b < B_h; ++b) {
             std::fill_n(max_allowed_s_h.begin() + b * T_max_h, T_max_h, S_h[b]);

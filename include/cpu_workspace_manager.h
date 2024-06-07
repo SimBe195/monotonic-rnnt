@@ -193,7 +193,7 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
             return s == S_[b] ? 0 : -std::numeric_limits<dtype>::infinity();
         }
 
-        if (s < min_allowed_s_[b][t - 1] || s > max_allowed_s_[b][t - 1]) {
+        if (t > 0 && (s < min_allowed_s_[b][t - 1] || s > max_allowed_s_[b][t - 1])) {
             return -std::numeric_limits<dtype>::infinity();
         }
 
