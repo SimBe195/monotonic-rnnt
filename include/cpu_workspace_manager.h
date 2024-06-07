@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <limits>
 #include <vector>
 
 #include "status.h"
@@ -46,6 +47,13 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
         for (int b = 1ul; b < B_; ++b) {
             act_start_indices_[b] = act_start_indices_[b - 1] + T_[b - 1] * (S_[b - 1] + 1) * V_;
         }
+
+        min_allowed_s_.reserve(B_);
+        max_allowed_s_.reserve(B_);
+        for (int b = 0ul; b < B_; ++b) {
+            min_allowed_s_.push_back(std::vector<int>(T_[b], 0));
+            max_allowed_s_.push_back(std::vector<int>(T_[b], S_[b]));
+        }
     }
 
     CpuRNNTWorkspaceManager(const CpuRNNTWorkspaceManager &) = delete;
@@ -56,13 +64,26 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
 
     [[nodiscard]] inline int S(int b) const { return S_[b]; }
 
-    [[nodiscard]] inline int alpha_s_min(int b, int t) const { return std::max(0, t - (T_[b] - 1 - S_[b])); }
+    [[nodiscard]] inline int alpha_s_min(int b, int t) const {
+        return std::max(min_allowed_s_[b][t], t - (T_[b] - 1 - S_[b]));
+    }
 
-    [[nodiscard]] inline int alpha_s_max(int b, int t) const { return std::min(t + 1, S_[b]); }
+    [[nodiscard]] inline int alpha_s_max(int b, int t) const { return std::min(max_allowed_s_[b][t], t + 1); }
 
-    [[nodiscard]] inline int beta_s_min(int b, int t) const { return std::max(0, t - (T_[b] - S_[b])); }
+    [[nodiscard]] inline int beta_s_min(int b, int t) const {
+        if (t == 0) {
+            return 0;
+        }
+        return std::max(min_allowed_s_[b][t - 1], t - (T_[b] - S_[b]));
+    }
 
-    [[nodiscard]] inline int beta_s_max(int b, int t) const { return std::min(t, S_[b]); }
+    [[nodiscard]] inline int beta_s_max(int b, int t) const {
+        if (t == 0) {
+            return 0;
+        }
+
+        return std::min(max_allowed_s_[b][t - 1], t);
+    }
 
     [[nodiscard]] inline int B() const { return B_; }
 
@@ -148,6 +169,10 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
             return s == 0 ? 0 : -std::numeric_limits<dtype>::infinity();
         }
 
+        if (s < min_allowed_s_[b][t] || s > max_allowed_s_[b][t]) {
+            return -std::numeric_limits<dtype>::infinity();
+        }
+
         if (s > t + 1 || S_[b] - s > T_[b] - 1 - t) {
             return -std::numeric_limits<dtype>::infinity();
         }
@@ -168,11 +193,34 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
             return s == S_[b] ? 0 : -std::numeric_limits<dtype>::infinity();
         }
 
+        if (t > 0 && (s < min_allowed_s_[b][t - 1] || s > max_allowed_s_[b][t - 1])) {
+            return -std::numeric_limits<dtype>::infinity();
+        }
+
         if (s > t || S_[b] - s - 1 > T_[b] - 1 - t) {
             return -std::numeric_limits<dtype>::infinity();
         }
 
         return betas_[b][beta_idx_(b, t, s)];
+    }
+
+    void restrict_to_alignment(const int *const alignments, int max_shift, int blank_idx) {
+        int T_max = *(std::max_element(T_, T_ + B_));
+
+        for (int b = 0; b < B_; ++b) {
+            std::vector<int> s_index_mapping(T_[b] + 1, 0);
+            for (int t = 0; t < T_[b]; ++t) {
+                if (alignments[b * T_max + t] == blank_idx) {
+                    s_index_mapping[t + 1] = s_index_mapping[t];
+                } else {
+                    s_index_mapping[t + 1] = s_index_mapping[t] + 1;
+                }
+            }
+            for (int t = 0; t < T_[b]; ++t) {
+                min_allowed_s_[b][t] = s_index_mapping[std::max(0, t + 1 - max_shift)];
+                max_allowed_s_[b][t] = s_index_mapping[std::min(T_[b], t + 1 + max_shift)];
+            }
+        }
     }
 
     void set_workspace(void *workspace) {
@@ -221,6 +269,9 @@ class CpuRNNTWorkspaceManager : public RNNTWorkspaceManager {
     std::vector<dtype *> denom_;
     std::vector<dtype *> alphas_;
     std::vector<dtype *> betas_;
+
+    std::vector<std::vector<int>> min_allowed_s_;
+    std::vector<std::vector<int>> max_allowed_s_;
 
     [[nodiscard]] inline size_t calc_denom_space_(int b) const { return dtype_size_ * T_[b] * (S_[b] + 1); }
 

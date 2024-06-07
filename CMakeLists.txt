@@ -3,7 +3,8 @@ project(monotonic_rnnt LANGUAGES CXX)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2")
 
-include_directories(include)
+set(INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+include_directories(${INCLUDE_DIR})
 
 option(USE_NAIVE_KERNEL "use naive alpha-beta kernel" OFF)
 option(DEBUG_TIME "output kernel time" OFF)
@@ -79,6 +80,8 @@ if (WITH_GPU)
   endif ()
   message(STATUS "Compiling with compute capabilities ${CMAKE_CUDA_ARCHITECTURES}")
 
+  set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -I${INCLUDE_DIR}")
+
   add_library(monotonic_rnnt SHARED src/rnnt_entrypoint.cu)
 
   add_executable(test_time_gpu tests/test_time.cu tests/random.cu)
@@ -120,7 +123,7 @@ if (WITH_GPU AND INCLUDE_TF_OP)
             REQUIRED
     )
 
-  add_library(monotonic_rnnt_tf_op SHARED tensorflow_binding/monotonic_rnnt_op.cu)
+  add_library(monotonic_rnnt_tf_op SHARED tensorflow_binding/monotonic_rnnt_op.cu tensorflow_binding/monotonic_rnnt_op_align_restrict.cu)
   target_include_directories(monotonic_rnnt_tf_op PUBLIC ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES})
   target_include_directories(monotonic_rnnt_tf_op PUBLIC ${Tensorflow_INCLUDE_DIR})
   target_link_libraries(monotonic_rnnt_tf_op PUBLIC ${Tensorflow_FRAMEWORK})

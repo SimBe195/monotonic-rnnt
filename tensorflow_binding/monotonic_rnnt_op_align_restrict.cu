@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <ostream>
 #ifdef RNNT_ENABLE_GPU
 #define EIGEN_USE_GPU
 
@@ -20,11 +22,13 @@
 
 namespace tf = tensorflow;
 
-REGISTER_OP("MonotonicRNNT")
+REGISTER_OP("MonotonicRNNTAlignRestrict")
     .Input("acts: float32")
     .Input("labels: int32")
     .Input("input_lengths: int32")
     .Input("label_lengths: int32")
+    .Input("alignment: int32")
+    .Attr("max_distance_from_alignment: int = 0")
     .Attr("blank_label: int = 0")
     .Output("costs: float32")
     .Output("grads: float32")
@@ -36,11 +40,12 @@ REGISTER_OP("MonotonicRNNT")
         return tf::Status();
     });
 
-namespace monotonic_rnnt {
+namespace monotonic_rnnt_align_restrict {
 
-class MonotonicRNNTOpBase : public tf::OpKernel {
+class MonotonicRNNTOpBaseAlignRestrict : public tf::OpKernel {
    public:
-    explicit MonotonicRNNTOpBase(tf::OpKernelConstruction *ctx) : tf::OpKernel(ctx) {
+    explicit MonotonicRNNTOpBaseAlignRestrict(tf::OpKernelConstruction *ctx) : tf::OpKernel(ctx) {
+        OP_REQUIRES_OK(ctx, ctx->GetAttr("max_distance_from_alignment", &max_distance_from_alignment_));
         OP_REQUIRES_OK(ctx, ctx->GetAttr("blank_label", &blank_label_));
     }
 
@@ -50,10 +55,12 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
         const tf::Tensor *labels;
         const tf::Tensor *label_lengths;
         const tf::Tensor *input_lengths;
+        const tf::Tensor *alignment;
         OP_REQUIRES_OK(ctx, ctx->input("acts", &acts));
         OP_REQUIRES_OK(ctx, ctx->input("labels", &labels));
         OP_REQUIRES_OK(ctx, ctx->input("label_lengths", &label_lengths));
         OP_REQUIRES_OK(ctx, ctx->input("input_lengths", &input_lengths));
+        OP_REQUIRES_OK(ctx, ctx->input("alignment", &alignment));
 
         OP_REQUIRES(ctx, acts->shape().dims() == 2, tf::errors::InvalidArgument("acts is not a 2-Tensor"));
         OP_REQUIRES(ctx, labels->shape().dims() == 2, tf::errors::InvalidArgument("labels is not a 2-Tensor"));
@@ -61,6 +68,7 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
                     tf::errors::InvalidArgument("label_lengths is not a vector"));
         OP_REQUIRES(ctx, tf::TensorShapeUtils::IsVector(input_lengths->shape()),
                     tf::errors::InvalidArgument("input_lengths is not a vector"));
+        OP_REQUIRES(ctx, alignment->shape().dims() == 2, tf::errors::InvalidArgument("alignment is not a 2-Tensor"));
 
         const auto &labels_shape = labels->shape();
         const auto &acts_shape = acts->shape();
@@ -82,6 +90,11 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
                     tf::errors::InvalidArgument("len(label_lengths) != batch_size.  ", "len(label_lengths):  ",
                                                 label_lengths->dim_size(0), " batch_size: ", B));
         auto label_lengths_t = label_lengths->vec<int32_t>();
+
+        OP_REQUIRES(ctx, B == alignment->dim_size(0),
+                    tf::errors::InvalidArgument("len(alignment) != batch_size.  ",
+                                                "len(alignment):  ", alignment->dim_size(0), " batch_size: ", B));
+        auto alignment_t = alignment->tensor<int32_t, 2>();
 
         tf::Tensor *costs = nullptr;
         OP_REQUIRES_OK(ctx, ctx->allocate_output("costs", input_lengths->shape(), &costs));
@@ -123,12 +136,14 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
         // compute RNNT
 #ifdef RNNT_ENABLE_GPU
         workspace_manager.set_workspace(workspace_t.data());
+        workspace_manager.restrict_to_alignment(alignment_t.data(), max_distance_from_alignment_, blank_label_);
 
         GpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.stream);
         rnnt_status = rnnt_computer.cost_and_grad(costs_t.data(), grads_t.data());
 
 #else
         workspace_manager.set_workspace(workspace_t.data());
+        workspace_manager.restrict_to_alignment(alignment_t.data(), max_distance_from_alignment_, blank_label_);
 
         CpuRNNTComputer<float> rnnt_computer(workspace_manager, options.blank_label, options.num_threads);
 
@@ -142,6 +157,7 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
 
    private:
     int blank_label_ = 0;
+    int max_distance_from_alignment_ = 0;
 
     virtual void set_zero(tf::Tensor *t) = 0;
 
@@ -150,9 +166,9 @@ class MonotonicRNNTOpBase : public tf::OpKernel {
 
 #ifdef RNNT_ENABLE_GPU
 
-class MonotonicRNNTOpGPU : public MonotonicRNNTOpBase {
+class MonotonicRNNTOpGPUAlignRestrict : public MonotonicRNNTOpBaseAlignRestrict {
    public:
-    explicit MonotonicRNNTOpGPU(tf::OpKernelConstruction *ctx) : MonotonicRNNTOpBase(ctx) {}
+    explicit MonotonicRNNTOpGPUAlignRestrict(tf::OpKernelConstruction *ctx) : MonotonicRNNTOpBaseAlignRestrict(ctx) {}
 
    private:
     void set_zero(tf::Tensor *t) override {
@@ -167,12 +183,13 @@ class MonotonicRNNTOpGPU : public MonotonicRNNTOpBase {
     }
 };
 
-REGISTER_KERNEL_BUILDER(Name("MonotonicRNNT").Device(::tensorflow::DEVICE_GPU).HostMemory("costs"), MonotonicRNNTOpGPU);
+REGISTER_KERNEL_BUILDER(Name("MonotonicRNNTAlignRestrict").Device(::tensorflow::DEVICE_GPU).HostMemory("costs"),
+                        MonotonicRNNTOpGPUAlignRestrict);
 #else
 
-class MonotonicRNNTOpCPU : public MonotonicRNNTOpBase {
+class MonotonicRNNTOpCPUAlignRestrict : public MonotonicRNNTOpBaseAlignRestrict {
    public:
-    explicit MonotonicRNNTOpCPU(tf::OpKernelConstruction *ctx) : MonotonicRNNTOpBase(ctx) {}
+    explicit MonotonicRNNTOpCPUAlignRestrict(tf::OpKernelConstruction *ctx) : MonotonicRNNTOpBaseAlignRestrict(ctx) {}
 
    private:
     void set_zero(tf::Tensor *t) override { t->flat<float>().setZero(); }
@@ -184,7 +201,8 @@ class MonotonicRNNTOpCPU : public MonotonicRNNTOpBase {
     }
 };
 
-REGISTER_KERNEL_BUILDER(Name("MonotonicRNNT").Device(::tensorflow::DEVICE_CPU), MonotonicRNNTOpCPU);
+REGISTER_KERNEL_BUILDER(Name("MonotonicRNNTAlignRestrict").Device(::tensorflow::DEVICE_CPU),
+                        MonotonicRNNTOpCPUAlignRestrict);
 #endif
 
-}  // namespace monotonic_rnnt
+}  // namespace monotonic_rnnt_align_restrict

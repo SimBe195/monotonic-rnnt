@@ -1,22 +1,9 @@
-import logging
-import os
+import argparse
 import time
 
-from _pytest.config import Notset
-import pytest
 import tensorflow as tf
 
-from tensorflow_binding.register_op import register_op, monotonic_rnnt_loss
-
-
-@pytest.fixture(scope="session", autouse=True)
-def setup_lib(pytestconfig: pytest.Config) -> None:
-    lib_path = pytestconfig.getoption("lib_path")
-    assert not isinstance(lib_path, Notset)
-    if not os.path.isfile(lib_path):
-        pytest.exit(f"Provided library file {lib_path} does not exist.", 1)
-
-    register_op(lib_path)
+from register_op import register_op, monotonic_rnnt_loss
 
 
 def test_cost_grad_values() -> None:
@@ -46,7 +33,13 @@ def test_cost_grad_values() -> None:
 
     with tf.GradientTape() as g:
         g.watch(acts)
-        costs = monotonic_rnnt_loss(acts, labels, lengths, label_lengths)  # type: ignore
+        costs = monotonic_rnnt_loss(
+            acts=acts,
+            labels=labels,
+            input_lengths=lengths,
+            label_lengths=label_lengths,
+            blank_label=0,
+        )  # type: ignore
     cost = costs.numpy()[0]  # type: ignore
     grads = g.gradient(costs, acts)
 
@@ -71,6 +64,65 @@ def test_cost_grad_values() -> None:
 
     tf.debugging.assert_near(expected_grads, grads, atol=1e-02)
 
+    print("Cost and grad test successful")
+
+
+def test_align_restrict_values() -> None:
+    acts = tf.constant(
+        [
+            [0.6, 0.3, 0.1],
+            [0.7, 0.1, 0.2],
+            [0.5, 0.1, 0.4],
+            [0.5, 0.4, 0.1],
+            [0.5, 0.1, 0.4],
+            [0.8, 0.1, 0.1],
+            [0.4, 0.3, 0.3],
+            [0.5, 0.1, 0.4],
+            [0.7, 0.2, 0.1],
+            [0.8, 0.1, 0.1],
+            [0.3, 0.1, 0.6],
+            [0.8, 0.1, 0.1],
+        ],
+        shape=(4 * 3, 3),
+        dtype=tf.float32,
+    )
+    acts = tf.math.log(acts)  # type: ignore
+
+    labels = tf.constant([[1, 2]], shape=(1, 2), dtype=tf.int32)
+    lengths = tf.constant([4], shape=(1,), dtype=tf.int32)
+    label_lengths = tf.constant([2], shape=(1,), dtype=tf.int32)
+    alignment = tf.constant([[0, 1, 0, 2]], dtype=tf.int32)
+
+    costs = monotonic_rnnt_loss(
+        acts=acts,
+        labels=labels,
+        input_lengths=lengths,
+        label_lengths=label_lengths,
+        alignment=alignment,
+        max_distance_from_alignment=1,
+        blank_label=0,
+    )  # type: ignore
+    cost = costs.numpy()[0]  # type: ignore
+
+    assert abs(cost - 1.22) < 1e-02
+
+    alignment = tf.constant([[1, 2, 0, 0]], dtype=tf.int32)
+
+    costs = monotonic_rnnt_loss(
+        acts=acts,
+        labels=labels,
+        input_lengths=lengths,
+        label_lengths=label_lengths,
+        alignment=alignment,
+        max_distance_from_alignment=0,
+        blank_label=0,
+    )  # type: ignore
+    cost = costs.numpy()[0]  # type: ignore
+
+    assert abs(cost - 2.7) < 1e-02
+
+    print("Align restrict test successful")
+
 
 def run_size_test(B: int, T: int, S: int, V: int, num_iters: int = 1) -> None:
     assert num_iters > 0
@@ -93,7 +145,7 @@ def run_size_test(B: int, T: int, S: int, V: int, num_iters: int = 1) -> None:
 
     avg = sum(times) / len(times)
     variance = sum((t - avg) * (t - avg) for t in times) / len(times)
-    logging.info(
+    print(
         f"All iterations for size test (B={B}, T={T}, S={S}, V={V}) completed. Average time: {avg:.2f} ms, variance: {variance:.4f}."
     )
 
@@ -122,3 +174,22 @@ def test_size_4() -> None:
 
 def test_size_5() -> None:
     run_size_test(2, 391, 300, 79, 1)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Tensorflow op test suite")
+    parser.add_argument(
+        "lib_file",
+        type=str,
+        help="Path to compiled `libmonotonic_rnnt_tf_op.so` library file",
+    )
+    args = parser.parse_args()
+    register_op(args.lib_file)
+    test_cost_grad_values()
+    test_size_1()
+    test_size_2()
+    test_size_3()
+    test_size_4()
+    test_size_5()
+    test_align_restrict_values()
+    print("All tests ran successfully!")

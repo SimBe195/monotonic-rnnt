@@ -9,8 +9,6 @@
 #include <chrono>
 #endif
 
-#include <cmath>
-
 #include "gpu_rnnt_kernel.h"
 #include "gpu_workspace_manager.h"
 #include "reduce.h"
@@ -32,6 +30,9 @@ class GpuRNNTComputer {
         auto S = workspace_manager_.S_host();
         int V = workspace_manager_.V_host();
         int S_max = workspace_manager_.S_max_host();
+        int T_max = workspace_manager_.T_max_host();
+        auto min_allowed_s = workspace_manager_.min_allowed_s_host();
+        auto max_allowed_s = workspace_manager_.max_allowed_s_host();
 
         bool training = (grads != nullptr);
 
@@ -99,13 +100,13 @@ class GpuRNNTComputer {
             workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.alphas, workspace_manager_.ll_forward,
             workspace_manager_.T, workspace_manager_.S, workspace_manager_.V, workspace_manager_.labels,
             workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices, workspace_manager_.S_max,
-            blank_);
+            workspace_manager_.T_max, workspace_manager_.min_allowed_s, workspace_manager_.max_allowed_s, blank_);
 #else
         compute_alphas_kernel<ProbT><<<B, S_max + 1, 0, stream_>>>(
             workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.alphas, workspace_manager_.ll_forward,
             workspace_manager_.T, workspace_manager_.S, workspace_manager_.V, workspace_manager_.labels,
             workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices, workspace_manager_.S_max,
-            blank_);
+            workspace_manager_.T_max, workspace_manager_.min_allowed_s, workspace_manager_.max_allowed_s, blank_);
 #endif
 #ifdef DEBUG_TIME
         cudaStreamSynchronize(stream_);
@@ -121,7 +122,8 @@ class GpuRNNTComputer {
             float *alphas_b = alphas.data() + var_start_offsets[b];
             for (int s = S[b]; s >= 0; --s) {
                 for (int t = -1; t < T[b]; ++t) {
-                    printf("%.2f ", alpha(alphas_b, t, s, T[b], S[b]));
+                    printf("%.2f ", alpha(alphas_b, t, s, T[b], S[b], min_allowed_s.data() + b * T_max,
+                                          max_allowed_s.data() + b * T_max));
                 }
                 printf("\n");
             }
@@ -144,13 +146,15 @@ class GpuRNNTComputer {
                 workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.betas,
                 workspace_manager_.ll_backward, workspace_manager_.T, workspace_manager_.S, workspace_manager_.V,
                 workspace_manager_.labels, workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices,
-                workspace_manager_.S_max, blank_);
+                workspace_manager_.S_max, workspace_manager_.T_max, workspace_manager_.min_allowed_s,
+                workspace_manager_.max_allowed_s, blank_);
 #else
             compute_betas_kernel<ProbT><<<B, S_max + 1, 0, stream_>>>(
                 workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.betas,
                 workspace_manager_.ll_backward, workspace_manager_.T, workspace_manager_.S, workspace_manager_.V,
                 workspace_manager_.labels, workspace_manager_.var_start_offsets, workspace_manager_.denom_start_indices,
-                workspace_manager_.S_max, blank_);
+                workspace_manager_.S_max, workspace_manager_.T_max, workspace_manager_.min_allowed_s,
+                workspace_manager_.max_allowed_s, blank_);
 #endif
 #ifdef DEBUG_TIME
             cudaStreamSynchronize(stream_);
@@ -165,7 +169,8 @@ class GpuRNNTComputer {
                 float *betas_b = betas.data() + var_start_offsets[b];
                 for (int s = S[b]; s >= 0; --s) {
                     for (int t = 0; t <= T[b]; ++t) {
-                        printf("%.2f ", beta(betas_b, t, s, T[b], S[b]));
+                        printf("%.2f ", beta(betas_b, t, s, T[b], S[b], min_allowed_s.data() + b * T_max,
+                                             max_allowed_s.data() + b * T_max));
                     }
                     printf("\n");
                 }
@@ -187,7 +192,8 @@ class GpuRNNTComputer {
                 grads, workspace_manager_.acts, workspace_manager_.denom, workspace_manager_.alphas,
                 workspace_manager_.betas, workspace_manager_.ll_forward, workspace_manager_.B, workspace_manager_.T,
                 workspace_manager_.S, workspace_manager_.labels, workspace_manager_.var_start_offsets,
-                workspace_manager_.denom_start_indices, workspace_manager_.S_max, workspace_manager_.V, blank_);
+                workspace_manager_.denom_start_indices, workspace_manager_.S_max, workspace_manager_.T_max,
+                workspace_manager_.min_allowed_s, workspace_manager_.max_allowed_s, workspace_manager_.V, blank_);
 #ifdef DEBUG_TIME
             cudaStreamSynchronize(stream_);
             end = std::chrono::high_resolution_clock::now();
