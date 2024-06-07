@@ -91,7 +91,7 @@ def test_alignment_restriction() -> None:
     labels = torch.tensor([[1, 2]], dtype=torch.int32)
     lengths = torch.tensor([4], dtype=torch.int32)
     label_lengths = torch.tensor([2], dtype=torch.int32)
-    alignment = torch.tensor([0, 1, 0, 2], dtype=torch.int32)
+    alignment = torch.tensor([[0, 1, 0, 2]], dtype=torch.int32)
 
     acts.requires_grad_(True)
 
@@ -109,7 +109,7 @@ def test_alignment_restriction() -> None:
 
     assert abs(cost - 1.22) < 1e-02
 
-    alignment = torch.tensor([1, 2, 0, 0], dtype=torch.int32)
+    alignment = torch.tensor([[1, 2, 0, 0]], dtype=torch.int32)
 
     acts.requires_grad_(True)
 

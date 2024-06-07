@@ -1,6 +1,7 @@
 __globals__ = ["register_op", "rnnt_loss", "_RNNTLossGrad"]
 
 import os
+from typing import Optional
 
 import tensorflow as tf
 
@@ -21,6 +22,8 @@ def monotonic_rnnt_loss(
     labels: tf.Tensor,
     input_lengths: tf.Tensor,
     label_lengths: tf.Tensor,
+    alignment: Optional[tf.Tensor] = None,
+    max_distance_from_alignment: int = 0,
     blank_label: int = 0,
 ) -> tf.Tensor:
     """Computes the RNNT loss between a sequence of activations and a
@@ -48,13 +51,24 @@ def monotonic_rnnt_loss(
     assert (
         _monotonic_rnnt is not None
     ), "Call `register_op` to register the operation before calling `rnnt_loss`."
-    loss, _ = _monotonic_rnnt.monotonic_rnnt(
-        acts,
-        labels,
-        input_lengths,
-        label_lengths,
-        blank_label,
-    )
+    if alignment is None:
+        loss, _ = _monotonic_rnnt.monotonic_rnnt(
+            acts,
+            labels,
+            input_lengths,
+            label_lengths,
+            blank_label,
+        )
+    else:
+        loss, _ = _monotonic_rnnt.monotonic_rnnt_align_restrict(
+            acts,
+            labels,
+            input_lengths,
+            label_lengths,
+            alignment,
+            max_distance_from_alignment,
+            blank_label,
+        )
     return loss
 
 
@@ -95,3 +109,40 @@ def _RNNTLossGrad(op, grad_loss, _):
     # [T_1*(S_1+1) + T_2*(S_2+1) + ... + T_B*(S_B+1), 1]
     grad_loss = tf.math.multiply(grad_loss, grad)
     return [grad_loss, None, None, None]
+
+
+@ops.RegisterGradient("MonotonicRNNTAlignRestrict")
+def _RNNTLossGrad(op, grad_loss, _):
+    """
+    Args:
+    op: Executed operation. Can be used to retreive input/output values.
+    grad_loss: gradient with respect to first operation output (loss).
+               Usually just [1, 1, ..., 1] (shape [B]).
+    _: gradient with respect to second operation output (grad). Unused.
+
+    Returns:
+        Gradient with respect to each input. Only the activations (input 0)
+        have a gradient, all others have None.
+    """
+    # If an activation at position i belongs to sample b in the minibatch, it
+    # gets grad[i] * grad_loss[b] as gradient
+
+    # Shape [T_1*(S_1+1) + T_2*(S_2+1) + ... + T_B*(S_B+1)].
+    grad = op.outputs[1]
+    # NOTE since here we are batch first, cannot use _BroadcastMul
+    # [T_1, T_2, ..., T_B]
+    input_lengths = op.inputs[2]
+    # [S_1, S_2, ..., S_B]
+    label_lengths = op.inputs[3]
+
+    # [T_1*(S_1+1), T_2*(S_2+1), ..., T_B*(S_B+1)]
+    repeats = tf.math.multiply(input_lengths, label_lengths + 1)
+
+    # grad_loss has shape [B] -> extend to shape of activations by repetition
+    # [T_1*(S_1+1) + T_2*(S_2+1) + ... + T_B*(S_B+1)]
+    grad_loss = tf.repeat(grad_loss, repeats, axis=0)
+    # [T_1*(S_1+1) + T_2*(S_2+1) + ... + T_B*(S_B+1), 1]
+    grad_loss = tf.expand_dims(grad_loss, axis=1)
+    # [T_1*(S_1+1) + T_2*(S_2+1) + ... + T_B*(S_B+1), 1]
+    grad_loss = tf.math.multiply(grad_loss, grad)
+    return [grad_loss, None, None, None, None, None]
